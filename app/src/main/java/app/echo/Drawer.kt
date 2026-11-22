@@ -47,6 +47,18 @@ internal data class ContentHit(val matched: Int, val total: Int) {
     val ratio: Float get() = if (total == 0) 0f else matched.toFloat() / total
 }
 
+private data class DrawerView(
+    val dormant: List<Session>,
+    val warm: List<Session>,
+    val pool: List<Session>,
+    val filtered: List<Session>,
+    val longDormant: List<Session>,
+    val shortDormant: List<Session>,
+    val warmSorted: List<Session>,
+    val titleHits: List<Session>,
+    val contentRows: List<Pair<Session, ContentHit>>,
+)
+
 internal val searchAliases: Map<String, List<String>> = mapOf(
     "复活" to listOf("恢复", "续上"),
     "恢复" to listOf("复活", "续上"),
@@ -260,6 +272,12 @@ internal fun DrawerPanel(
     var contentHits by remember { mutableStateOf<Map<String, ContentHit>>(emptyMap()) }
     var contentSearching by remember { mutableStateOf(false) }
     val panelW = (LocalConfiguration.current.screenWidthDp * .82f).coerceIn(320f, 420f)
+    // The drawer recomposes on every keystroke while searching; these counts used
+    // to walk all ~3,800 sessions twice per pass just to build the placeholder.
+    val shownCount = remember(state.revision, expiredOnly) {
+        if (expiredOnly) state.sessions.count { it.expired && !it.revived }
+        else state.sessions.count { !it.expired || it.revived }
+    }
     Surface(color = C.Panel, modifier = Modifier.fillMaxHeight().width(panelW.dp)) {
         Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -288,8 +306,7 @@ internal fun DrawerPanel(
                 onValueChange = { query = it },
                 placeholder = {
                     Text(
-                        if (expiredOnly) "搜索 " + state.sessions.count { !it.revived } + " 个对话"
-                        else "搜索 " + state.sessions.count { !it.expired || it.revived } + " 个会话",
+                        if (expiredOnly) "搜索 " + shownCount + " 个对话" else "搜索 " + shownCount + " 个会话",
                         color = C.Muted, fontSize = 13.sp,
                     )
                 },
@@ -329,37 +346,61 @@ internal fun DrawerPanel(
             }
             Spacer(Modifier.height(14.dp))
             val now = System.currentTimeMillis()
-            val dormant = state.sessions.filter { it.expired && !it.revived }
-            val warm = state.sessions.filter { !it.expired && !it.revived }
-            val activePool = state.sessions.filter { !it.expired || it.revived }
-            val pool = if (expiredOnly) dormant + warm else activePool
-            val filtered = searchSessions(pool, query, associative)
-            val reviveCmp: Comparator<Session> = when (reviveSort) {
-                1 -> compareByDescending<Session> { it.messages.roleSeq.length }.thenByDescending { it.updatedAt }
-                2 -> compareByDescending<Session> { it.charCount }
-                    .thenByDescending { it.messages.roleSeq.length }
-                    .thenByDescending { it.updatedAt }
-                else -> compareByDescending { it.updatedAt }
-            }
-            val longDormant = dormant.filter { it.messages.roleSeq.length >= 20 }.sortedWith(reviveCmp)
-            val shortDormant = dormant.filter { it.messages.roleSeq.length < 20 }.sortedWith(reviveCmp)
-            val warmSorted = warm.sortedWith(reviveCmp)
-            val titleHits = if (query.isBlank()) emptyList() else filtered
-            val contentRows = if (query.isBlank()) emptyList() else contentHits.entries.mapNotNull { entry ->
-                pool.firstOrNull { it.id == entry.key }?.let { it to entry.value }
-            }.sortedWith(
-                if (contentSortByRatio) {
-                    compareByDescending<Pair<Session, ContentHit>> { it.second.ratio }
-                        .thenByDescending { it.second.matched }
-                        .thenByDescending { it.first.pinned }
-                        .thenByDescending { it.first.updatedAt }
-                } else {
-                    compareByDescending<Pair<Session, ContentHit>> { it.second.matched }
-                        .thenByDescending { it.second.ratio }
-                        .thenByDescending { it.first.pinned }
-                        .thenByDescending { it.first.updatedAt }
+            // Partition/filter/sort ~3,800 sessions. This ran on every recomposition
+            // (each keystroke, each contentHits update); cache it on the inputs that
+            // actually change the result.
+            val view = remember(
+                state.revision, state.sessions, query, associative, expiredOnly,
+                reviveSort, contentSortByRatio, contentHits,
+            ) {
+                val dormant = state.sessions.filter { it.expired && !it.revived }
+                val warm = state.sessions.filter { !it.expired && !it.revived }
+                val activePool = state.sessions.filter { !it.expired || it.revived }
+                val pool = if (expiredOnly) dormant + warm else activePool
+                val filtered = searchSessions(pool, query, associative)
+                val reviveCmp: Comparator<Session> = when (reviveSort) {
+                    1 -> compareByDescending<Session> { it.messages.roleSeq.length }.thenByDescending { it.updatedAt }
+                    2 -> compareByDescending<Session> { it.charCount }
+                        .thenByDescending { it.messages.roleSeq.length }
+                        .thenByDescending { it.updatedAt }
+                    else -> compareByDescending { it.updatedAt }
                 }
-            )
+                val contentRows = if (query.isBlank()) emptyList() else contentHits.entries.mapNotNull { entry ->
+                    pool.firstOrNull { it.id == entry.key }?.let { it to entry.value }
+                }.sortedWith(
+                    if (contentSortByRatio) {
+                        compareByDescending<Pair<Session, ContentHit>> { it.second.ratio }
+                            .thenByDescending { it.second.matched }
+                            .thenByDescending { it.first.pinned }
+                            .thenByDescending { it.first.updatedAt }
+                    } else {
+                        compareByDescending<Pair<Session, ContentHit>> { it.second.matched }
+                            .thenByDescending { it.second.ratio }
+                            .thenByDescending { it.first.pinned }
+                            .thenByDescending { it.first.updatedAt }
+                    }
+                )
+                DrawerView(
+                    dormant = dormant,
+                    warm = warm,
+                    pool = pool,
+                    filtered = filtered,
+                    longDormant = dormant.filter { it.messages.roleSeq.length >= 20 }.sortedWith(reviveCmp),
+                    shortDormant = dormant.filter { it.messages.roleSeq.length < 20 }.sortedWith(reviveCmp),
+                    warmSorted = warm.sortedWith(reviveCmp),
+                    titleHits = if (query.isBlank()) emptyList() else filtered,
+                    contentRows = contentRows,
+                )
+            }
+            val dormant = view.dormant
+            val warm = view.warm
+            val pool = view.pool
+            val filtered = view.filtered
+            val longDormant = view.longDormant
+            val shortDormant = view.shortDormant
+            val warmSorted = view.warmSorted
+            val titleHits = view.titleHits
+            val contentRows = view.contentRows
             LaunchedEffect(query, associative, expiredOnly, state.revision) {
                 if (query.isBlank()) {
                     contentHits = emptyMap()

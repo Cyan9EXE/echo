@@ -14,12 +14,12 @@
 - **官方语音**：TTS 朗读（¥3 / 万计费字符）与语音识别（¥0.78 / 小时），调用前弹计费确认，可勾选不再提示；本机用量账本。
 - **联网搜索**：官方 deepseek_web_search 工具，回答附带来源链接。
 - **外观**：日间 / 夜间 / 跟随系统，金 · 蓝 · 青 · 陶四种强调色，字号可调，切换有过渡动画。
-- **隐私**：API Key 默认隐藏，连续点 3 次「显示」才展示，展示期间禁止截屏；Key、会话与附件只存在本机。
+- **隐私**：API Key 默认隐藏，连续点 3 次「显示」才展示，展示期间禁止截屏；Key 用 Android Keystore（AES-256-GCM）加密后才落盘，磁盘上没有明文；Key、会话与附件只存在本机。
 - **自适应**：720–3840 像素宽度的屏幕均可正常使用，关键操作热区不小于 48dp。
 
 ## 技术
 
-纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。20 个 Kotlin 文件、约 6k 行：
+纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。22 个 Kotlin 文件、约 6.3k 行：
 
     app/src/main/java/app/echo/
       MainActivity / EchoApp     入口与导航
@@ -33,6 +33,8 @@
 
 - namespace = app.echo；applicationId = app.xuxie 为兼容老用户本地数据而保留。
 - minSdk 26 / targetSdk 35。
+- 性能：对话页只在贴底时跟随流式输出；会话列表的分区 / 搜索 / 排序结果按状态缓存；索引写入与消息解析全部下沉 IO 线程。
+- AOT：release 使用官方 `androidx.baselineprofile` 插件生成 Baseline Profile，并依赖 `androidx.profileinstaller:1.4.1`（1.3.x 在 Android 15 / SDK 35 上会静默拒绝写入，已升级）。
 
 ## 构建
 
@@ -42,6 +44,13 @@
     gradle :app:assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
 
 产物：app/build/outputs/apk/release/app-release.apk。默认 API：https://api.deepseek.com；如需指向本地 mock，可加 -PapiOrigin=http://10.0.2.2:8099。
+
+Baseline Profile 的生成文件默认不提交（app/src/release/generated/ 已忽略）。需要 AOT 版时，先连一台 API 28+ 设备/模拟器生成，再构建 release：
+
+    gradle :app:generateBaselineProfile -x lintVitalAnalyzeRelease -x lintVitalRelease
+    gradle :app:assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
+
+profile 由 `baselineprofile` 宏基准模块采集，覆盖启动、滚动、设置、会话搜索等主要路径。
 
 ## 隐私与费用
 

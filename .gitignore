@@ -12,6 +12,12 @@ captures/
 .externalNativeBuild/
 .cxx/
 
+# generated baseline profile (regenerate on a device with :app:generateBaselineProfile)
+app/src/release/generated/
+
+# local mock server harness
+mock_api.py
+
 # local scratch and private data
 _*
 *.log

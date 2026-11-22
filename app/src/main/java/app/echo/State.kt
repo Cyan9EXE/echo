@@ -47,7 +47,12 @@ class AppState(private val context: Context) {
     private var estimateValue = 0
     private var estimateAt = 0L
 
-    var apiKey by mutableStateOf(prefs.getString("apiKey", "").orEmpty())
+    // Plain-text prefs are gone: the key is sealed with an AES-256-GCM key that
+    // lives in the Android Keystore (see KeyVault). load() also rewrites a legacy
+    // plain-text value in place, or drops it when the Keystore entry is gone.
+    private val storedApiKey = KeyVault.load(appContext)
+
+    var apiKey by mutableStateOf(storedApiKey.key)
         private set
     var model by mutableStateOf(prefs.getString("model", "deepseek-flash").orEmpty())
         private set
@@ -96,9 +101,27 @@ class AppState(private val context: Context) {
     private var flushLive: (() -> Unit)? = null
 
     val sessions = mutableStateListOf<Session>()
-    val current: Session? get() = sessions.firstOrNull { it.id == currentId }
+    // current is read by most composables and by token estimation; scanning the
+    // full 3,800-session list on every read was a main-thread hotspot. Cache by id
+    // and drop the cache whenever membership or the current selection changes.
+    private var currentCache: Session? = null
+    private var currentCacheId: String? = null
+    val current: Session?
+        get() {
+            val id = currentId ?: return null
+            if (currentCacheId == id) currentCache?.let { return it }
+            val found = sessions.firstOrNull { it.id == id }
+            currentCache = found
+            currentCacheId = id
+            return found
+        }
+    private fun invalidateCurrent() {
+        currentCache = null
+        currentCacheId = null
+    }
 
     init {
+        if (storedApiKey.lost) notice = "API Key 无法解密（系统密钥库已变更），请重新填写。"
         prefs.edit().remove("blueAccent").apply()
         C.initDay(prefs.getBoolean("dayMode", false))
         if (prefs.contains("officialToken") || prefs.contains("officialName") || prefs.contains("officialPhone") || prefs.contains("officialDeviceId") || prefs.contains("mode")) {
@@ -128,10 +151,13 @@ class AppState(private val context: Context) {
         if (indexFile.exists()) loadIndexAsync() else migrateLegacyAsync()
     }
 
-    fun updateApiKey(value: String) {
-        apiKey = value.trim()
-        prefs.edit().putString("apiKey", apiKey).apply()
-        notice = null
+    /** Returns false when the key is only valid for this process (Keystore unusable). */
+    fun updateApiKey(value: String): Boolean {
+        val clean = value.trim()
+        apiKey = clean
+        val saved = KeyVault.save(appContext, clean)
+        notice = if (saved) null else "无法安全保存 Key：系统密钥库不可用。本次运行临时有效。"
+        return saved
     }
 
     fun updateModel(value: String) {
@@ -238,6 +264,7 @@ class AppState(private val context: Context) {
 
     fun delete(session: Session) {
         sessions.remove(session)
+        invalidateCurrent()
         if (currentId == session.id) currentId = null
         dirtyIds.remove(session.id)
         val f = msgFile(session.id)
@@ -660,7 +687,9 @@ class AppState(private val context: Context) {
             if (!s.messages.ready) continue
             snapshots.add(snapshotSession(s))
         }
-        val rows = snapshotIndex()
+        // Index rows touch Compose state and message lists, so they are still built on
+        // the main thread; only JSON encoding and disk writes happen on the store thread.
+        val rows = sessions.map(::sessionIndexRow)
         io.execute {
             for (snap in snapshots) {
                 runCatching { writeAtomic(msgFile(snap.id), serializeSnapshot(snap)) }
@@ -853,11 +882,11 @@ class AppState(private val context: Context) {
         file.parentFile?.mkdirs()
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeText(text)
-        if (file.exists() && !file.delete()) return
-        if (!tmp.renameTo(file)) {
-            tmp.copyTo(file, overwrite = true)
-            tmp.delete()
-        }
+        // Same-directory rename replaces atomically on Linux; deleting the target
+        // first opened a window where a crash left no file at all.
+        if (tmp.renameTo(file)) return
+        tmp.copyTo(file, overwrite = true)
+        tmp.delete()
     }
 
     private fun msgFile(id: String): File {
@@ -907,6 +936,7 @@ class AppState(private val context: Context) {
             sessions.clear()
             sessions.addAll(sorted)
         }
+        invalidateCurrent()
         revision++
     }
 
@@ -936,22 +966,29 @@ class AppState(private val context: Context) {
         currentId?.let { readyOrder.addLast(it) }
     }
 
+    private val parsingIds = HashSet<String>()
+
+    // Anything beyond a small conversation is parsed off the main thread. Parsing a
+    // multi-hundred-KB JSON record during a tap was the main source of jank when
+    // opening old sessions. parsingIds also prevents queuing the same parse twice.
     private fun ensureReadyForUi(s: Session) {
-        if (s.messages.ready) return
+        if (s.messages.ready || parsingIds.contains(s.id)) return
         val f = msgFile(s.id)
         if (!f.exists()) {
             s.messages.markEmpty()
             return
         }
-        if (f.length() <= 250_000L) {
+        if (f.length() <= 48_000L) {
             runCatching { parseSessionRecord(f, s) }.onFailure { s.messages.markEmpty() }
-        } else {
-            io.execute {
-                val ok = runCatching { parseSessionRecord(f, s) }.isSuccess
-                main.post {
-                    if (!ok) s.messages.markEmpty()
-                    if (s.id == currentId) revision++
-                }
+            return
+        }
+        parsingIds.add(s.id)
+        io.execute {
+            val ok = runCatching { parseSessionRecord(f, s) }.isSuccess
+            main.post {
+                parsingIds.remove(s.id)
+                if (!ok) s.messages.markEmpty()
+                if (s.id == currentId) revision++
             }
         }
     }
@@ -1278,6 +1315,7 @@ class AppState(private val context: Context) {
             sessions.clear()
             sessions.addAll(merged)
         }
+        invalidateCurrent()
         importing = false
         importStatus = ""
         revision++

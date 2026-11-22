@@ -1,7 +1,5 @@
 package app.echo
 
-import android.content.Intent
-import android.net.Uri
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
@@ -136,12 +134,17 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                 )
                 Spacer(Modifier.height(7.dp))
                 Text(
-                    "默认隐藏，连续点 3 次「显示」。显示时系统禁止截屏；Key 只保存在本机、不上传。",
+                    "默认隐藏，连续点 3 次「显示」。显示时系统禁止截屏；Key 经系统密钥库 AES-GCM 加密后只保存在本机、不上传。",
                     color = C.Muted, fontSize = 10.sp,
                 )
                 Spacer(Modifier.height(12.dp))
                 Pressable(
-                    onClick = { state.updateApiKey(key); state.closeSettings(); state.notice = "API Key 已保存" },
+                    onClick = {
+                        if (state.updateApiKey(key)) {
+                            state.closeSettings()
+                            state.notice = "API Key 已保存"
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                     scale = .97f,
@@ -407,7 +410,7 @@ internal fun AboutDialog(accent: Color, onDismiss: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
                 AboutSection("网络与隐私")
                 AboutRow("直连", "请求由你的 API Key 直连 api.deepseek.com，不经过本应用服务器。")
-                AboutRow("本机", "会话、附件与 Key 只保存在本机；Key 默认隐藏，显示时系统禁止截屏。")
+                AboutRow("本机", "会话、附件与 Key 只保存在本机；Key 经系统密钥库 AES-GCM 加密，磁盘上不含明文，默认隐藏且显示时禁止截屏。")
                 Spacer(Modifier.height(16.dp))
                 AboutSection("费用")
                 AboutRow("朗读", "¥3 / 万计费字符（汉字计 2 字符）；由官方按量扣费。")
@@ -419,13 +422,7 @@ internal fun AboutDialog(accent: Color, onDismiss: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
                 AboutSection("GitHub")
                 Pressable(
-                    onClick = {
-                        runCatching {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Cyan9EXE/echo")),
-                            )
-                        }
-                    },
+                    onClick = { Browsers.open(context, "https://github.com/Cyan9EXE/echo") },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                     scale = .98f,

@@ -278,7 +278,7 @@ internal fun HelpCenter(state: AppState, accent: Color) {
     var open by remember { mutableStateOf(-1) }
     val faqs = remember {
         listOf(
-            Triple("开始使用", "怎么获取 API Key？", "打开 platform.deepseek.com 登录，进入「API keys」创建，复制 sk- 开头的 Key，回到 设置 → API Key 粘贴保存。Key 只保存在本机。"),
+            Triple("开始使用", "怎么获取 API Key？", "打开 platform.deepseek.com 登录，进入「API keys」创建，复制 sk- 开头的 Key，回到 设置 → API Key 粘贴保存。Key 经系统密钥库加密后只保存在本机。"),
             Triple("开始使用", "需要先充值吗？", "免费模式用官方账号原有额度；付费 BYOK 从官方平台余额按量扣费。余额为 0 时请求会失败，可在 platform.deepseek.com/usage 查看用量与充值。"),
             Triple("开始使用", "只有一台手机，怎么扫码或登录？", "不需要扫码。免费模式在 设置 里点「用官方网页登录」，按短信验证码完成；付费模式把电脑上创建的 Key 复制到手机粘贴即可，同一台设备就能完成。"),
             Triple("对话与文件", "对话文件在哪？", "在 DeepSeek 官方 App/网页进入 设置 → 账号 → 导出数据，下载 ZIP。回到 Echo：设置 → 导入历史对话 → 选择 ZIP。找不到文件时，用系统「文件」App 搜索 .zip，或从下载通知里点开。"),

@@ -26,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -36,7 +37,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
@@ -52,6 +52,20 @@ internal fun ChatScreen(state: AppState, accent: Color) {
         }
         val listState = rememberLazyListState()
         val liveId = if (state.streaming) s.messages.lastOrNull()?.id else null
+        // Follow the tail only while the user is already near the bottom. The old
+        // implementation force-scrolled every 80 ms during streaming regardless of
+        // the user's position, which stole gestures and kept the list re-laying out.
+        val atBottom by remember {
+            derivedStateOf {
+                val info = listState.layoutInfo
+                val last = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                last >= info.totalItemsCount - 2
+            }
+        }
+        val streamTick = if (liveId == null) -1 else {
+            val m = s.messages.lastOrNull()
+            (m?.text?.length ?: 0) * 31 + (m?.thinking?.length ?: 0)
+        }
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
             state = listState,
@@ -70,19 +84,14 @@ internal fun ChatScreen(state: AppState, accent: Color) {
                 item { Text("正在生成…", color = C.Muted, fontSize = 12.sp) }
             }
         }
-        LaunchedEffect(s.messages.size) {
+        LaunchedEffect(s.id) {
             if (s.messages.isNotEmpty()) {
-                listState.scrollToItem(s.messages.size - 1)
+                runCatching { listState.scrollToItem(s.messages.size - 1) }
             }
         }
-        LaunchedEffect(liveId) {
-            if (liveId == null) return@LaunchedEffect
-            while (true) {
-                delay(80)
-                if (!listState.isScrollInProgress && s.messages.isNotEmpty()) {
-                    runCatching { listState.scrollToItem(s.messages.size, 0) }
-                }
-            }
+        LaunchedEffect(streamTick, atBottom) {
+            if (streamTick < 0 || !atBottom) return@LaunchedEffect
+            runCatching { listState.scrollToItem(s.messages.size, 0) }
         }
         if (state.apiKey.isBlank() && s.messages.any { it.role == "assistant" && it.failed }) {
             Pressable(
