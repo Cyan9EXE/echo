@@ -25,6 +25,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
 
 @Composable
 internal fun ChatScreen(state: AppState, accent: Color) {
@@ -62,10 +65,6 @@ internal fun ChatScreen(state: AppState, accent: Color) {
                 last >= info.totalItemsCount - 2
             }
         }
-        val streamTick = if (liveId == null) -1 else {
-            val m = s.messages.lastOrNull()
-            (m?.text?.length ?: 0) * 31 + (m?.thinking?.length ?: 0)
-        }
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
             state = listState,
@@ -80,18 +79,28 @@ internal fun ChatScreen(state: AppState, accent: Color) {
                     if (m.role == "user") UserBubble(m.text) else AssistantBubble(m, accent, state, live = m.id == liveId)
                 }
             }
-            if (state.streaming) {
-                item { Text("正在生成…", color = C.Muted, fontSize = 12.sp) }
-            }
         }
         LaunchedEffect(s.id) {
             if (s.messages.isNotEmpty()) {
                 runCatching { listState.scrollToItem(s.messages.size - 1) }
             }
         }
-        LaunchedEffect(streamTick, atBottom) {
-            if (streamTick < 0 || !atBottom) return@LaunchedEffect
-            runCatching { listState.scrollToItem(s.messages.size, 0) }
+        // Read the live text lengths inside snapshotFlow rather than during composition:
+        // this keeps ChatScreen itself stable while streaming and only asks the list to
+        // follow the tail when there is genuinely new content, at most ~11 fps.
+        LaunchedEffect(s.id, liveId) {
+            if (liveId == null) return@LaunchedEffect
+            var lastScroll = 0L
+            snapshotFlow {
+                val m = s.messages.lastOrNull()
+                (m?.text?.length ?: 0) + (m?.thinking?.length ?: 0)
+            }.conflate().collect {
+                if (!atBottom) return@collect
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - lastScroll < 90) return@collect
+                lastScroll = now
+                runCatching { listState.scrollToItem(s.messages.size - 1, Int.MAX_VALUE) }
+            }
         }
         if (state.apiKey.isBlank() && s.messages.any { it.role == "assistant" && it.failed }) {
             Pressable(
@@ -275,7 +284,14 @@ internal fun RevivalBanner(state: AppState, s: Session, accent: Color) {
 @Composable
 internal fun ContextBar(state: AppState, accent: Color) {
     val s = state.current
-    val tokens = state.estimateTokens()
+    val tokens = state.contextTokens
+    LaunchedEffect(state.streaming, s?.id) {
+        if (!state.streaming) return@LaunchedEffect
+        while (true) {
+            delay(500)
+            state.refreshContextTokens()
+        }
+    }
     val mode = if (s?.contextMode == "summary" && !s.summary.isNullOrBlank()) "摘要" else "原文"
     val fraction = (tokens / 1_000_000f).coerceIn(0f, 1f)
     Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 2.dp)) {

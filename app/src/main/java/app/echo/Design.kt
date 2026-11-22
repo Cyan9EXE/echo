@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -84,15 +85,8 @@ internal fun TopBar(state: AppState, accent: Color, title: String? = null, onBac
             }
         }
         if (onBack != null) {
-            TapTarget(
-                size = 48.dp,
-                visual = 48.dp,
-                onClick = { state.updateSkin((state.skinIndex + 1) % C.skins.size) },
-                description = "切换主题色，当前" + C.skins[state.skinIndex].label,
-            ) {
-                Text(C.skins[state.skinIndex].label, color = accent, fontSize = 10.sp, fontWeight = FontWeight.Medium)
-            }
-            Spacer(Modifier.width(2.dp))
+            AccentSwitcher(state)
+            Spacer(Modifier.width(6.dp))
             TapTarget(size = 48.dp, visual = 48.dp, onClick = { state.openSettings() }, description = "设置") {
                 MoreGlyph(Modifier.size(20.dp), C.Muted)
             }
@@ -297,16 +291,45 @@ internal fun Chip(icon: String, label: String, active: Boolean, accent: Color, o
     Pressable(
         onClick = onClick,
         modifier = Modifier
-            .heightIn(min = 48.dp)
-            .border(1.dp, if (active) accent.copy(alpha = .5f) else C.Hair, RoundedCornerShape(24.dp)),
-        shape = RoundedCornerShape(24.dp),
+            .heightIn(min = 34.dp)
+            .border(1.dp, if (active) accent.copy(alpha = .5f) else C.Hair, RoundedCornerShape(17.dp)),
+        shape = RoundedCornerShape(17.dp),
         scale = .95f,
         description = label,
     ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(icon, color = color, fontSize = 11.sp)
             Spacer(Modifier.width(4.dp))
             Text(label, color = color, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+internal fun AccentSwitcher(state: AppState) {
+    Row(
+        Modifier.height(34.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        C.skins.forEachIndexed { i, s ->
+            val on = state.skinIndex == i
+            Box(
+                Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .clickable { state.updateSkin(i) }
+                    .semantics { contentDescription = "强调色 " + s.label },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(if (on) 13.dp else 9.dp)
+                        .clip(CircleShape)
+                        .background(if (C.isDay) s.day else s.night)
+                        .then(if (on) Modifier.border(1.5.dp, C.Ivory, CircleShape) else Modifier),
+                )
+            }
         }
     }
 }

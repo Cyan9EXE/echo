@@ -135,13 +135,13 @@ internal fun SearchModeTab(label: String, selected: Boolean, accent: Color, onCl
     Pressable(
         onClick = onClick,
         modifier = Modifier
-            .heightIn(min = 48.dp)
-            .border(1.dp, if (selected) accent.copy(alpha = .55f) else C.Hair, RoundedCornerShape(24.dp)),
-        shape = RoundedCornerShape(24.dp),
+            .heightIn(min = 34.dp)
+            .border(1.dp, if (selected) accent.copy(alpha = .55f) else C.Hair, RoundedCornerShape(17.dp)),
+        shape = RoundedCornerShape(17.dp),
         scale = .95f,
         description = label,
     ) {
-        Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
             Text(label, color = if (selected) accent else C.Muted, fontSize = 11.sp)
         }
     }

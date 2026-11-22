@@ -24,6 +24,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -106,45 +107,48 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
         }
         Spacer(Modifier.height(7.dp))
         ThinkingBlock(m, accent, live)
-        AnswerText(m)
+        if (m.text.isNotBlank() || m.thinking.isBlank()) AnswerText(m)
         if (m.citations.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             CitationsBlock(m.citations, accent)
         }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionChip("复制") {
-                if (m.text.isNotBlank()) {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Echo reply", m.text))
-                    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+        // 与官方一致：流式生成期间不显示操作区与计费行，生成结束后再出现。
+        if (!live) {
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionChip("复制") {
+                    if (m.text.isNotBlank()) {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Echo reply", m.text))
+                        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                ReadControl(
+                    m = m,
+                    state = state,
+                    accent = accent,
+                    live = live,
+                    readingThis = readingThis,
+                    readLabel = readLabel,
+                    askTts = askTts,
+                    onAskTts = { askTts = it },
+                )
+                ActionChip("重试") {
+                    if (state.streaming) {
+                        Toast.makeText(context, "正在生成，请稍后再试", Toast.LENGTH_SHORT).show()
+                    } else {
+                        state.retryLast()
+                    }
                 }
             }
-            ReadControl(
-                m = m,
-                state = state,
-                accent = accent,
-                live = live,
-                readingThis = readingThis,
-                readLabel = readLabel,
-                askTts = askTts,
-                onAskTts = { askTts = it },
-            )
-            ActionChip("重试") {
-                if (state.streaming) {
-                    Toast.makeText(context, "正在生成，请稍后再试", Toast.LENGTH_SHORT).show()
-                } else {
-                    state.retryLast()
-                }
+            if (m.inputTokens > 0 || m.outputTokens > 0) {
+                Spacer(Modifier.height(5.dp))
+                val shownCost = if (m.costCny > 0.0) m.costCny else state.msgCost(m)
+                Text(
+                    "本轮 " + fmtCny(shownCost) + " · 输入 " + m.inputTokens + " / 输出 " + m.outputTokens + " tokens",
+                    color = C.Muted, fontSize = 10.sp, fontFamily = FontFamily.Monospace,
+                )
             }
-        }
-        if (m.inputTokens > 0 || m.outputTokens > 0) {
-            Spacer(Modifier.height(5.dp))
-            val shownCost = if (m.costCny > 0.0) m.costCny else state.msgCost(m)
-            Text(
-                "本轮 " + fmtCny(shownCost) + " · 输入 " + m.inputTokens + " / 输出 " + m.outputTokens + " tokens",
-                color = C.Muted, fontSize = 10.sp, fontFamily = FontFamily.Monospace,
-            )
         }
     }
 }
@@ -203,46 +207,90 @@ internal fun ReadControl(
 @Composable
 internal fun ThinkingBlock(m: Msg, accent: Color, live: Boolean) {
     val thinking = m.thinking
-    if (thinking.isBlank()) return
-    var open by remember(m.id) { mutableStateOf(live) }
+    val answerStarted = m.text.isNotBlank()
+    // While waiting for the first token the official app still shows a small
+    // "正在思考" header; once the answer starts it collapses to one line.
+    if (thinking.isBlank() && (!live || answerStarted)) return
+    var open by remember(m.id) { mutableStateOf(true) }
+    var collapsedOnce by remember(m.id) { mutableStateOf(false) }
     val scroll = rememberScrollState()
-    val body = if (live) thinking.takeLast(420) else thinking
-    LaunchedEffect(live) {
-        if (!live) scroll.scrollTo(0)
+    LaunchedEffect(live, answerStarted) {
+        if (live && answerStarted && !collapsedOnce) {
+            collapsedOnce = true
+            open = false
+        }
+    }
+    // Pin the panel to its newest line while expanded. The window below is a
+    // fixed-height box, so the list item stops resizing on every token.
+    LaunchedEffect(live, open) {
+        if (live && open) {
+            snapshotFlow { scroll.maxValue }.collect { scroll.scrollTo(it) }
+        }
+    }
+    val title = when {
+        !answerStarted -> "正在思考"
+        m.thinkingMs > 0L -> "已思考（用时 " + (((m.thinkingMs + 500) / 1000).coerceAtLeast(1)) + " 秒）"
+        else -> "已思考"
     }
     Surface(color = C.Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 9.dp)) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    when {
-                        m.text.isBlank() -> "思考过程 · 生成中"
-                        live -> "思考过程 · " + thinking.length + " 字 · 显示最新片段"
-                        else -> "思考过程 · " + thinking.length + " 字"
-                    },
-                    color = C.Muted, fontSize = 11.sp, modifier = Modifier.weight(1f),
-                )
-                Text(
-                    if (open) "收起" else "展开",
-                    color = accent, fontSize = 11.sp,
-                    modifier = Modifier.clickable { open = !open }.padding(horizontal = 6.dp, vertical = 2.dp),
-                )
+                Text(title, color = C.Muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                if (thinking.isNotBlank()) {
+                    Text(
+                        if (open) "收起" else "展开",
+                        color = accent, fontSize = 11.sp,
+                        modifier = Modifier.clickable { open = !open }.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
             }
-            if (open) {
+            if (open && thinking.isNotBlank()) {
                 Spacer(Modifier.height(5.dp))
+                // A trailing window keeps per-token layout bounded; the fixed max
+                // height keeps the bubble from growing/shrinking every frame.
+                val body = if (live) thinking.takeLast(1400) else thinking
                 Text(
                     body,
                     color = C.Muted, fontSize = 13.sp, lineHeight = 20.sp,
-                    modifier = if (live) Modifier.fillMaxWidth()
-                    else Modifier.heightIn(max = 260.dp).verticalScroll(scroll),
+                    modifier = Modifier.fillMaxWidth()
+                        .heightIn(max = if (live) 180.dp else 260.dp)
+                        .verticalScroll(scroll),
                 )
             }
         }
     }
 }
 
+// Split only at boundaries that are already final, so prepending a new tail
+// never changes earlier chunks: stable chunks skip text layout on each token.
+private fun answerChunks(text: String): List<String> {
+    if (text.length > 12_000) return listOf(text)
+    val out = ArrayList<String>(text.length / 600 + 1)
+    var start = 0
+    while (start < text.length) {
+        var end = (start + 600).coerceAtMost(text.length)
+        if (end < text.length) {
+            val nl = text.lastIndexOf('\n', end - 1)
+            if (nl > start + 300) end = nl + 1
+        }
+        out.add(text.substring(start, end))
+        start = end
+    }
+    return out
+}
+
 @Composable
 internal fun AnswerText(m: Msg) {
     val text = m.text
     val thinking = m.thinking
-    Text(text.ifBlank { if (thinking.isNotBlank()) "（思考中）" else "…" }, color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp)
+    val shown = text.ifBlank { if (thinking.isNotBlank()) "（思考中）" else "…" }
+    if (text.length < 700) {
+        Text(shown, color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp)
+        return
+    }
+    Column {
+        for (chunk in answerChunks(shown)) {
+            Text(chunk, color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp)
+        }
+    }
 }

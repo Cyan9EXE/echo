@@ -43,9 +43,8 @@ class AppState(private val context: Context) {
     private val saveRunnable = Runnable { save() }
     private val dirtyIds = LinkedHashSet<String>()
     private var lastRevisionAt = 0L
-    private var estimateRevision = -1
-    private var estimateValue = 0
-    private var estimateAt = 0L
+    var contextTokens by mutableStateOf(0)
+        private set
 
     // Plain-text prefs are gone: the key is sealed with an AES-256-GCM key that
     // lives in the Android Keystore (see KeyVault). load() also rewrites a legacy
@@ -245,6 +244,7 @@ class AppState(private val context: Context) {
         sessions.add(0, s)
         currentId = s.id
         markDirty(s.id)
+        refreshContextTokens()
         save()
     }
 
@@ -254,12 +254,14 @@ class AppState(private val context: Context) {
         ensureReadyForUi(session)
         currentId = session.id
         touchReady(session)
+        refreshContextTokens()
         revision++
     }
 
     fun backHome() {
         typing = false
         currentId = null
+        refreshContextTokens()
     }
 
     fun delete(session: Session) {
@@ -269,6 +271,7 @@ class AppState(private val context: Context) {
         dirtyIds.remove(session.id)
         val f = msgFile(session.id)
         io.execute { runCatching { f.delete() } }
+        refreshContextTokens()
         save()
     }
 
@@ -302,6 +305,7 @@ class AppState(private val context: Context) {
         val effectiveModel = if (webSearch) "deepseek-flash" else model
         val reply = Msg(role = "assistant", text = "", model = effectiveModel)
         session.messages.add(reply)
+        refreshContextTokens()
         session.updatedAt = System.currentTimeMillis()
         streaming = true
         notice = null
@@ -315,10 +319,11 @@ class AppState(private val context: Context) {
         val mySeq = ++streamSeq
         val textBuf = StringBuilder()
         val thinkingBuf = StringBuilder()
+        val thinkStarted = SystemClock.uptimeMillis()
         var lastPublish = 0L
         fun publish(force: Boolean) {
             val now = SystemClock.uptimeMillis()
-            if (!force && now - lastPublish < 60) return
+            if (!force && now - lastPublish < 120) return
             lastPublish = now
             reply.text = textBuf.toString()
             reply.thinking = thinkingBuf.toString()
@@ -335,6 +340,9 @@ class AppState(private val context: Context) {
             onText = { chunk ->
                 if (mySeq == streamSeq) {
                     textBuf.append(chunk)
+                    if (thinkingBuf.isNotEmpty() && reply.thinkingMs == 0L) {
+                        reply.thinkingMs = SystemClock.uptimeMillis() - thinkStarted
+                    }
                     session.updatedAt = System.currentTimeMillis()
                     publish(false)
                     bumpRevisionThrottled()
@@ -365,11 +373,15 @@ class AppState(private val context: Context) {
                 if (mySeq == streamSeq) {
                     textBuf.append(if (textBuf.isEmpty()) message else "\n\n[中断] " + message)
                     reply.failed = true
+                    if (thinkingBuf.isNotEmpty() && reply.thinkingMs == 0L) {
+                        reply.thinkingMs = SystemClock.uptimeMillis() - thinkStarted
+                    }
                     publish(true)
                     streaming = false
                     activeStream = null
                     flushLive = null
                     streamSessionId = null
+                    refreshContextTokens()
                     markDirty(sessionId)
                     revision++
                     save()
@@ -377,11 +389,15 @@ class AppState(private val context: Context) {
             },
             onDone = { cancelled ->
                 if (mySeq == streamSeq) {
+                    if (thinkingBuf.isNotEmpty() && reply.thinkingMs == 0L) {
+                        reply.thinkingMs = SystemClock.uptimeMillis() - thinkStarted
+                    }
                     publish(true)
                     streaming = false
                     activeStream = null
                     flushLive = null
                     streamSessionId = null
+                    refreshContextTokens()
                     if (includeSystem) session.systemSent = true
                     if (cancelled) {
                         notice = "已暂停生成；已保留当前内容。"
@@ -409,6 +425,7 @@ class AppState(private val context: Context) {
         notice = "已暂停生成；已保留当前内容。"
         (streamSessionId ?: current?.id)?.let { markDirty(it) }
         streamSessionId = null
+        refreshContextTokens()
         revision++
         scheduleSave()
     }
@@ -435,6 +452,7 @@ class AppState(private val context: Context) {
         }
         markDirty(session.id)
         save()
+        refreshContextTokens()
         revision++
     }
 
@@ -608,21 +626,20 @@ class AppState(private val context: Context) {
         return SummaryPlan(sb.toString().trim(), covered, blocks)
     }
 
-    fun estimateTokens(): Int {
-        val s = current ?: return 0
-        if (estimateRevision == revision) return estimateValue
-        val now = SystemClock.uptimeMillis()
-        if (now - estimateAt < 200) return estimateValue
+    fun refreshContextTokens() {
+        val s = current
+        if (s == null) {
+            contextTokens = 0
+            return
+        }
         val chars = if (s.contextMode == "summary" && s.summary.isNotBlank()) {
             s.summary.length + historyMessages(s).drop(s.summaryCovered).sumOf { it.text.length }
-        } else {
+        } else if (s.messages.ready) {
             s.messages.sumOf { it.text.length }
+        } else {
+            s.charCount.toInt()
         }
-        val v = (chars / 2.5).toInt() + 12
-        estimateRevision = revision
-        estimateValue = v
-        estimateAt = now
-        return v
+        contextTokens = (chars / 2.5).toInt() + 12
     }
 
     fun isPeakNow(): Boolean {
@@ -715,6 +732,7 @@ class AppState(private val context: Context) {
                     cacheCreateTokens = m.cacheCreateTokens,
                     costCny = m.costCny,
                     citations = m.citations.toList(),
+                    thinkingMs = m.thinkingMs,
                 ),
             )
         }
@@ -805,6 +823,7 @@ class AppState(private val context: Context) {
         cacheCreateTokens: Int,
         costCny: Double,
         citations: List<Citation>,
+        thinkingMs: Long,
     ): JSONObject = JSONObject().apply {
         put("id", id)
         put("role", role)
@@ -817,6 +836,7 @@ class AppState(private val context: Context) {
         put("cacheReadTokens", cacheReadTokens)
         put("cacheCreateTokens", cacheCreateTokens)
         put("costCny", costCny)
+        put("thinkingMs", thinkingMs)
         put(
             "citations",
             JSONArray().apply {
@@ -850,7 +870,8 @@ class AppState(private val context: Context) {
             arr.put(
                 msgJson(
                     m.id, m.role, m.text, m.thinking, m.model, m.time,
-                    m.inputTokens, m.outputTokens, m.cacheReadTokens, m.cacheCreateTokens, m.costCny, m.citations,
+                    m.inputTokens, m.outputTokens, m.cacheReadTokens, m.cacheCreateTokens,
+                    m.costCny, m.citations, m.thinkingMs,
                 ),
             )
         }
@@ -871,7 +892,8 @@ class AppState(private val context: Context) {
             arr.put(
                 msgJson(
                     m.id, m.role, m.text, m.thinking, m.model, m.time,
-                    m.inputTokens, m.outputTokens, m.cacheReadTokens, m.cacheCreateTokens, m.costCny, m.citations,
+                    m.inputTokens, m.outputTokens, m.cacheReadTokens, m.cacheCreateTokens,
+                    m.costCny, m.citations, m.thinkingMs,
                 ),
             )
         }
@@ -1035,6 +1057,7 @@ class AppState(private val context: Context) {
                 outputTokens = m.optInt("outputTokens", 0),
                 cacheReadTokens = m.optInt("cacheReadTokens", 0),
                 cacheCreateTokens = m.optInt("cacheCreateTokens", 0),
+                thinkingMs = m.optLong("thinkingMs", 0L),
             ).also {
                 it.costCny = m.optDouble("costCny", 0.0)
                 it.citations = readCitations(m)
@@ -1149,6 +1172,7 @@ class AppState(private val context: Context) {
             var cacheRead = 0
             var cacheCreate = 0
             var costCny = 0.0
+            var thinkingMs = 0L
             r.beginObject()
             while (r.hasNext()) {
                 when (r.nextName()) {
@@ -1163,6 +1187,7 @@ class AppState(private val context: Context) {
                     "cacheReadTokens" -> cacheRead = nextIntLoose(r)
                     "cacheCreateTokens" -> cacheCreate = nextIntLoose(r)
                     "costCny" -> costCny = nextDoubleLoose(r)
+                    "thinkingMs" -> thinkingMs = nextLongLoose(r)
                     else -> r.skipValue()
                 }
             }
@@ -1180,6 +1205,7 @@ class AppState(private val context: Context) {
                     outputTokens = outputTokens,
                     cacheReadTokens = cacheRead,
                     cacheCreateTokens = cacheCreate,
+                    thinkingMs = thinkingMs,
                 ).also { it.costCny = costCny },
             )
         }
@@ -1251,6 +1277,7 @@ class AppState(private val context: Context) {
                 put("cacheReadTokens", m.cacheReadTokens)
                 put("cacheCreateTokens", m.cacheCreateTokens)
                 put("costCny", m.costCny)
+                put("thinkingMs", m.thinkingMs)
             })
         }
         o.put("messages", arr)
@@ -1318,6 +1345,7 @@ class AppState(private val context: Context) {
         invalidateCurrent()
         importing = false
         importStatus = ""
+        refreshContextTokens()
         revision++
         notice = "已导入 " + fresh.size + " 个会话；超过 7 天未活跃的会话标为「已失效」，可逐条复活。"
         val indexJson = buildIndexJson()

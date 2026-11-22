@@ -17,6 +17,7 @@ class Msg(
     outputTokens: Int = 0,
     cacheReadTokens: Int = 0,
     cacheCreateTokens: Int = 0,
+    thinkingMs: Long = 0L,
 ) {
     var text by mutableStateOf(text)
     var thinking by mutableStateOf(thinking)
@@ -24,6 +25,7 @@ class Msg(
     var outputTokens by mutableStateOf(outputTokens)
     var cacheReadTokens by mutableStateOf(cacheReadTokens)
     var cacheCreateTokens by mutableStateOf(cacheCreateTokens)
+    var thinkingMs by mutableStateOf(thinkingMs)
     var costCny by mutableStateOf(0.0)
     var citations by mutableStateOf<List<Citation>>(emptyList())
     var failed by mutableStateOf(false)
@@ -42,6 +44,7 @@ internal data class MsgSnapshot(
     val cacheCreateTokens: Int,
     val costCny: Double,
     val citations: List<Citation> = emptyList(),
+    val thinkingMs: Long = 0L,
 )
 
 data class SummaryBlock(
