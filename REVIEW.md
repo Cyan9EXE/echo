@@ -1,7 +1,7 @@
 # Echo 评审说明（REVIEW）
 
 > 面向评审者的一页纸：项目定位、关键决策、本轮改动、验证方式、已知问题。
-> 代码仓库：app-native/（Android，Kotlin + Jetpack Compose）。撰写时版本 0.9.1（versionCode 12）。
+> 代码仓库：app-native/（Android，Kotlin + Jetpack Compose）。撰写时版本 0.9.2（versionCode 13）。
 
 ## 1. 这个项目是什么
 
@@ -51,8 +51,14 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **流式状态机**：mock SSE（`-PapiOrigin=http://127.0.0.1:8099`）下，发送后依次出现：正在思考 →（正文开始）折叠为「已思考（用时 10 秒）」→ 结束后出现「复制 / 朗读 ¥0.66 / 重试」与「本轮 ¥0.0004 · 输入 120 / 输出 80 tokens」；流式期间上述操作区与费用行均不出现。
 - **上下文条**：流式期间每 500ms 刷新 token/占比，结束后稳定；点击「详情」可看模式与明细。
 - **自我一致性**：导入 ZIP → 3807 会话 → 失效标记 / 逐条复活 / 摘要模式 → 重启 App 后状态与 token 估算一致（此前轮次已验证，见 README 功能清单）。
-- **构建**：`gradle :app:assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease` → BUILD SUCCESSFUL，release APK 约 1.2MB。
-- **AOT**：release 走官方 `androidx.baselineprofile` 生成 Baseline Profile，运行时依赖 `androidx.profileinstaller:1.4.1`（1.3.x 在 SDK 35 上会静默拒绝写入）。真机/模拟器安装后可用 `adb shell cmd package compile -m speed-profile -f app.xuxie` 验证编译产物；注意 ART 需要充电/空闲才会后台全量编译，冷启动收益需在同一设备前后对比。
+- **构建**：`gradle :app:assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease` → BUILD SUCCESSFUL，release APK 1,340,709 B（0.9.2）。
+- **官方包回归**（api.deepseek.com，假 Key）：发送后返回「API Key 无效或已过期，请在设置里重新填写。」，操作区（复制 / 朗读 ¥0.01 / 重试）恢复，说明 onError 路径不破坏会话状态。
+- **AOT / Baseline Profile（本轮实测）**：
+  - APK 内已打包 `assets/dexopt/baseline.prof`（6184 B）与 `baseline.profm`（281 B），来自官方 `androidx.baselineprofile` 生成，非手写。
+  - 首启日志出现 `ProfileInstaller: Installing profile for app.xuxie`，随后 `/data/misc/profiles/ref/app.xuxie/primary.prof` 为 6190 B；二次启动变为 `Skipping profile installation`（已安装，正确去重）。
+  - `adb shell cmd package compile -m speed-profile -f app.xuxie` → `dumpsys package dexopt` 显示 `[status=speed-profile]`；oat 产物 `base.odex 4,177,768 B / base.vdex 2,305,844 B / base.art 553,840 B`，确认走的是 AOT 而非 verify。
+  - 注意顺序：设备上还没有 profile 时直接 `-m speed-profile` 会落回 `status=verify`；先让 profileinstaller 写入 ref profile，再编译，才会得到 speed-profile。
+  - 模拟器冷启动（软件渲染，`am start -W -S`）AOT 后 954 / 1001 / 1014 ms，与 verify 状态基本持平——x86 模拟器启动瓶颈在 Compose 布局/窗口而非 dex 校验；真机收益需在真机同版本前后对比。
 
 ## 5. 已知限制
 
