@@ -2,6 +2,10 @@ package app.echo
 
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.foundation.background
@@ -26,6 +30,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -58,6 +65,8 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
     var keyShown by remember { mutableStateOf(false) }
     var keyTaps by remember { mutableStateOf(0) }
     var firstTapAt by remember { mutableStateOf(0L) }
+    var keyTip by remember { mutableStateOf(false) }
+    var keyTipAt by remember { mutableStateOf(0L) }
     var aboutOpen by remember { mutableStateOf(false) }
     val sheetView = LocalView.current
     DisposableEffect(keyShown) {
@@ -71,7 +80,22 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().fillMaxHeight(.9f),
     ) {
-        Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Press &&
+                                System.currentTimeMillis() - keyTipAt > 160L
+                            ) {
+                                keyTip = false
+                            }
+                        }
+                    }
+                },
+        ) {
             Box(
                 Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
                 contentAlignment = Alignment.Center,
@@ -99,7 +123,10 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                         onClick = {
                             if (keyShown) {
                                 keyShown = false
+                                keyTip = false
                             } else {
+                                keyTip = true
+                                keyTipAt = System.currentTimeMillis()
                                 val now = System.currentTimeMillis()
                                 keyTaps = if (now - firstTapAt > 1400L) 1 else keyTaps + 1
                                 firstTapAt = if (keyTaps == 1) now else firstTapAt
@@ -123,7 +150,14 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     onValueChange = { if (keyShown) key = it },
                     readOnly = !keyShown,
                     placeholder = { Text("sk-...", color = C.Muted, fontSize = 13.sp) },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focus ->
+                            if (focus.isFocused && keyShown) {
+                                keyTip = true
+                                keyTipAt = System.currentTimeMillis()
+                            }
+                        },
                     singleLine = true,
                     visualTransformation = if (keyShown) VisualTransformation.None else PasswordVisualTransformation(),
                     textStyle = TextStyle(color = C.Ivory, fontSize = 14.sp),
@@ -132,10 +166,35 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                         focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
                     ),
                 )
+                AnimatedVisibility(
+                    visible = keyTip,
+                    enter = fadeIn(tween(120)),
+                    exit = fadeOut(tween(120)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(C.PanelHigh)
+                            .border(1.dp, C.Hair, RoundedCornerShape(9.dp))
+                            .padding(horizontal = 11.dp, vertical = 9.dp),
+                    ) {
+                        Text(
+                            "请勿共用或泄露 Key：他人会消耗你的额度与账单；泄露请立即在官方后台删除重建。",
+                            color = C.Ivory.copy(alpha = .86f), fontSize = 10.sp, lineHeight = 15.sp,
+                        )
+                    }
+                }
                 Spacer(Modifier.height(7.dp))
                 Text(
-                    "默认隐藏，连续点 3 次「显示」。显示时系统禁止截屏；Key 经系统密钥库 AES-GCM 加密后只保存在本机、不上传。",
-                    color = C.Muted, fontSize = 10.sp,
+                    "优先用 DeepSeek 官方账号的免费额度；API Key 为付费调用。",
+                    color = C.Muted, fontSize = 10.sp, lineHeight = 15.sp,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "默认隐藏，连续点 3 次「显示」；显示时系统禁止截屏。Key 经系统密钥库 AES-GCM 加密后只保存在本机、不上传。",
+                    color = C.Muted, fontSize = 10.sp, lineHeight = 15.sp,
                 )
                 Spacer(Modifier.height(12.dp))
                 Pressable(
@@ -234,6 +293,32 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                         colors = SwitchDefaults.colors(checkedThumbColor = C.Void, checkedTrackColor = accent, uncheckedThumbColor = C.Muted, uncheckedTrackColor = C.PanelHigh),
                     )
                 }
+                Spacer(Modifier.height(18.dp))
+                Text("运行模式", color = C.Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(false to "正常", true to "性能").forEach { (perf, label) ->
+                        val on = state.performanceMode == perf
+                        Pressable(
+                            onClick = { state.updatePerformanceMode(perf) },
+                            shape = RoundedCornerShape(9.dp),
+                            scale = .95f,
+                            description = "运行模式：" + label,
+                        ) {
+                            Box(
+                                Modifier
+                                    .background(if (on) accent.copy(alpha = .16f) else Color.Transparent, RoundedCornerShape(9.dp))
+                                    .border(1.dp, if (on) accent else C.Hair, RoundedCornerShape(9.dp))
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                            ) { Text(label, color = if (on) accent else C.Muted, fontSize = 10.sp) }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    "正常：省电优先，后台让出内存。性能：存储线程提速、流式刷新更密、更多会话常驻内存，后台尽量保活。",
+                    color = C.Muted, fontSize = 9.sp, lineHeight = 13.sp,
+                )
                 Spacer(Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("外观", color = C.Ivory, fontSize = 14.sp)
@@ -326,6 +411,18 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                         }
                         Text("›", color = accent, fontSize = 20.sp)
                     }
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("显示计费提示", color = C.Ivory, fontSize = 14.sp)
+                        Text("消息底部费用、token 与朗读估价；关闭后对话更干净", color = C.Muted, fontSize = 10.sp)
+                    }
+                    Switch(
+                        checked = state.showBillingHints,
+                        onCheckedChange = state::updateShowBillingHints,
+                        colors = SwitchDefaults.colors(checkedTrackColor = accent),
+                    )
                 }
                 Spacer(Modifier.height(22.dp))
                 Text("数据", color = C.Muted, fontSize = 11.sp)

@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -136,14 +137,18 @@ internal fun SearchModeTab(label: String, selected: Boolean, accent: Color, onCl
     Pressable(
         onClick = onClick,
         modifier = Modifier
-            .heightIn(min = 48.dp)
-            .border(1.dp, if (selected) accent.copy(alpha = .55f) else C.Hair, RoundedCornerShape(24.dp)),
-        shape = RoundedCornerShape(24.dp),
+            .heightIn(min = 24.dp)
+            .border(1.dp, if (selected) accent.copy(alpha = .55f) else C.Hair, RoundedCornerShape(12.dp)),
+        shape = RoundedCornerShape(12.dp),
         scale = .95f,
         description = label,
+        contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-            Text(label, color = if (selected) accent else C.Muted, fontSize = 11.sp)
+        Box(Modifier.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+            Text(
+                label, color = if (selected) accent else C.Muted, fontSize = 12.sp,
+                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+            )
         }
     }
 }

@@ -67,6 +67,7 @@ object ApiClient {
         webSearch: Boolean = false,
         systemPrompt: String? = null,
         messages: List<ApiMsg>,
+        flushMs: Int = 60,
         onText: (String) -> Unit,
         onThinking: (String) -> Unit,
         onUsage: (ApiUsage) -> Unit,
@@ -162,7 +163,7 @@ object ApiClient {
                             event = ""
                             data.setLength(0)
                             if (textBuf.length + thinkBuf.length >= FLUSH_BYTES ||
-                                SystemClock.uptimeMillis() - lastFlushAt >= FLUSH_INTERVAL_MS
+                                SystemClock.uptimeMillis() - lastFlushAt >= flushMs.coerceIn(16, 200)
                             ) {
                                 flush()
                             }

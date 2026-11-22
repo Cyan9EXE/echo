@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -52,6 +53,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -152,6 +155,7 @@ internal fun Pressable(
     shape: Shape = RectangleShape,
     scale: Float = .96f,
     description: String? = null,
+    contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -179,6 +183,7 @@ internal fun Pressable(
                 onClick()
             }
             .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier),
+        contentAlignment = contentAlignment,
     ) {
         content()
         if (wash > .001f) {
@@ -373,35 +378,46 @@ internal fun Chip(
     onClick: () -> Unit,
 ) {
     val color = if (active) accent else C.Muted
+    // 比例对齐官方 App：高 24dp、全圆角、字号 12sp，图标 12dp、间距 4dp。
+    // 官方实测（1080x2388 / 474dpi）：chip 高 72px=24.3dp、内文 12sp、左右内距约 10dp。
     Pressable(
         onClick = onClick,
         modifier = Modifier
-            .heightIn(min = 34.dp)
-            .border(1.dp, if (active) accent.copy(alpha = .5f) else C.Hair, RoundedCornerShape(17.dp)),
-        shape = RoundedCornerShape(17.dp),
+            .heightIn(min = 24.dp)
+            .border(1.dp, if (active) accent.copy(alpha = .5f) else C.Hair, RoundedCornerShape(12.dp)),
+        shape = RoundedCornerShape(12.dp),
         scale = .95f,
         description = label,
+        contentAlignment = Alignment.Center,
     ) {
         Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(13.dp), contentAlignment = Alignment.Center) { icon(color) }
-            Spacer(Modifier.width(5.dp))
-            Text(label, color = color, fontSize = 11.sp)
+            Box(Modifier.size(12.dp), contentAlignment = Alignment.Center) { icon(color) }
+            Spacer(Modifier.width(4.dp))
+            Text(
+                label, color = color, fontSize = 12.sp,
+                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+            )
         }
     }
 }
 
 @Composable
 internal fun ActionChip(label: String, onClick: () -> Unit) {
+    // 宽度足够，只收紧高度；文字用固定行高保证视觉垂直居中。
     Box(
         modifier = Modifier
-            .heightIn(min = 48.dp)
+            .height(32.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(C.Panel.copy(alpha = 0.65f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 15.dp, vertical = 10.dp),
+            .padding(horizontal = 15.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = C.Ivory.copy(alpha = 0.82f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(
+            label, color = C.Ivory.copy(alpha = 0.82f), fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+            modifier = Modifier.offset(y = 0.5.dp),
+        )
     }
 }
 

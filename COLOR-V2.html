@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo 配色 v2 · COLOR V2</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0}
+body{background:#0F1115;color:#EDE8DF;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased;line-height:1.5}
+:root{--pg:#0F1115;--card:#171B21;--card2:#14181E;--line:rgba(255,255,255,.10);--line2:rgba(255,255,255,.20);--ink:#EDE8DF;--ink2:#A9A79F;--ink3:#7C7A74;--gold:#F2A65A;--ok:#7FD1A5;--mono:ui-monospace,"SF Mono",Menlo,Consolas,"Cascadia Mono",monospace;--sans:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:56px 28px 40px}
+.mono{font-family:var(--mono)}
+.eyebrow{font:500 10.5px/1 var(--mono);letter-spacing:.2em;color:var(--gold);text-transform:uppercase}
+h1{font-size:clamp(30px,4.2vw,52px);font-weight:300;letter-spacing:.01em;line-height:1.22;margin:18px 0 0}
+.lede{margin:18px 0 0;max-width:720px;font-size:13.5px;line-height:1.85;color:var(--ink2)}
+.lede b{color:var(--ink);font-weight:600}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.m-chip{font:500 10.5px/1 var(--mono);letter-spacing:.06em;color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:7px 11px;background:rgba(255,255,255,.02)}
+.m-chip b{color:var(--ink);font-weight:600}
+.sec{margin-top:64px}
+.sec-h{display:flex;align-items:baseline;gap:14px;border-top:1px solid var(--line);padding-top:18px;margin-bottom:22px}
+.sec-n{font:600 10.5px/1 var(--mono);letter-spacing:.16em;color:var(--gold)}
+.sec-h h2{font-size:19px;font-weight:600;letter-spacing:.01em;margin:0}
+.sec-d{margin-left:auto;max-width:520px;text-align:right;font-size:12px;line-height:1.7;color:var(--ink3)}
+.a-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.a-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px}
+.a-pair{display:flex;height:118px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.a-half{flex:1;position:relative;display:flex;align-items:center;justify-content:center}
+.a-half span{position:absolute;left:9px;bottom:7px;font:500 8.5px/1 var(--mono);letter-spacing:.12em}
+.a-night{background:#050608}.a-night span{color:rgba(237,232,223,.55)}
+.a-day{background:#F4F2ED}.a-day span{color:rgba(16,17,20,.55)}
+.a-lamp{width:52px;height:52px;border-radius:50%}
+.a-ink{width:44px;height:44px;border-radius:10px}
+.a-name{display:flex;align-items:baseline;gap:7px;margin:11px 2px 6px}
+.a-cn{font-size:17px;font-weight:600}.a-id{font:500 9.5px/1 var(--mono);letter-spacing:.12em;color:var(--ink3);text-transform:uppercase}
+.a-hex{display:flex;justify-content:space-between;gap:6px;font:500 10.5px/1.7 var(--mono);color:var(--ink2);margin:0 2px}
+.a-hex em{font-style:normal;color:var(--ink3);font-size:9px;letter-spacing:.08em}
+.a-min{margin:8px 2px 0;padding-top:8px;border-top:1px solid var(--line);font:500 9.5px/1.6 var(--mono);color:var(--ink3);display:flex;justify-content:space-between}
+.a-min b{color:var(--ok);font-weight:600}
+.a-note{margin:6px 2px 0;font-size:10.5px;line-height:1.55;color:var(--ink3)}
+.ctable{width:100%;border-collapse:collapse;font-size:12px}
+.ctable th{font:600 9.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);text-align:left;padding:10px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.ctable td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.055);font-family:var(--mono);font-size:11.5px;color:var(--ink2);white-space:nowrap}
+.ctable tr:last-child td{border-bottom:0}
+.ct-group td{background:rgba(255,255,255,.028);color:var(--ink);font-family:var(--sans);font-size:12px;font-weight:600;letter-spacing:.02em}
+.ct-group .g{color:var(--gold);font-family:var(--mono);font-size:10px;letter-spacing:.12em;margin-left:8px}
+.ct-ok{color:var(--ok)}
+.ct-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--card)}
+.use-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.ui{border:1px solid var(--line);border-radius:18px;background:var(--card);padding:13px}
+.ui-cap{font:500 9.5px/1.4 var(--mono);letter-spacing:.12em;color:var(--ink3);margin:0 0 9px 2px}
+.ui-inner{background:var(--ui-bg);border:1px solid var(--ui-line);border-radius:13px;padding:13px 13px 14px}
+.ui-k{font:500 9px/1.5 var(--mono);letter-spacing:.1em;color:var(--ui-ink2);margin:12px 2px 6px}
+.ui-row{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;background:var(--ui-panel);border:1px solid var(--ui-line)}
+.ui-row.on{background:var(--ui-soft);border-left:2px solid var(--ui-accent);padding-left:8px}
+.ui-row .t{font-size:12px;color:var(--ui-ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ui-row .s{font:500 9px/1 var(--mono);color:var(--ui-ink2)}
+.ui-chip{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border-radius:13px;border:1px solid var(--ui-accent);color:var(--ui-accent);font-size:11.5px}
+.ui-chip i{width:5px;height:5px;border-radius:50%;background:var(--ui-accent)}
+.ui-send{width:36px;height:36px;border-radius:50%;background:var(--ui-accent);color:var(--ui-on);display:grid;place-items:center}
+.ui-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 14px;border-radius:9px;background:var(--ui-accent);color:var(--ui-on);font-size:12px}
+.ui-link{color:var(--ui-accent);font-size:11.5px;text-decoration:underline;text-underline-offset:3px}
+.ui-mark{display:inline-flex;gap:4px}
+.ui-mark i{width:18px;height:18px;border-radius:3px}
+.ui-flex{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.marks{display:flex;flex-wrap:wrap;gap:22px;margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--card2)}
+.mark-item{display:flex;align-items:center;gap:10px}
+.mark-pair{display:inline-flex;gap:5px}
+.mark-pair i{width:24px;height:24px;border-radius:4px;display:block}
+.mark-item .lbl{font:500 10px/1.6 var(--mono);color:var(--ink3);letter-spacing:.06em}
+.mark-item .lbl b{display:block;color:var(--ink2);font-weight:600;font-size:10.5px;letter-spacing:.02em}
+.devices{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}
+.dev{width:390px;max-width:100%;flex:0 0 auto;border:1px solid var(--line2);border-radius:46px;padding:10px;background:#0A0C10;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.dev-scr{border-radius:37px;overflow:hidden;background:var(--bg);border:1px solid var(--line)}
+.d-status{display:flex;justify-content:space-between;align-items:center;height:30px;padding:0 18px;font:500 10px/1 var(--mono);color:var(--ink);background:var(--bg)}
+.d-sig{letter-spacing:.06em}
+.d-body{padding:4px 15px 13px;background:var(--bg)}
+.d-grab{width:36px;height:4px;border-radius:2px;background:var(--line2);margin:6px auto 10px}
+.d-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px}
+.d-title{font-size:19px;font-weight:600;color:var(--ink);letter-spacing:.02em}
+.d-close{color:var(--ink2);font-size:17px;line-height:1}
+.d-sub{font-size:10px;line-height:1.55;color:var(--ink2)}
+.d-lab{font:500 8.5px/1 var(--mono);letter-spacing:.16em;color:var(--ink3);margin:13px 1px 6px;text-transform:uppercase}
+.d-combo{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:10px 11px}
+.d-mark{display:inline-flex;gap:3px}
+.d-mark i{width:16px;height:16px;border-radius:2.5px;display:block;border:.5px solid var(--line2)}
+.d-combo-t{flex:1;min-width:0}
+.d-combo-t b{display:block;font-size:12.5px;font-weight:600;color:var(--ink)}
+.d-combo-t span{display:block;font-size:9px;color:var(--ink2);margin-top:1px}
+.d-sendbox{text-align:center}
+.d-send2{width:30px;height:30px;border-radius:50%;background:var(--accent);color:var(--on);display:grid;place-items:center}
+.d-sendlab{font:500 7.5px/1 var(--mono);letter-spacing:.12em;color:var(--ink3);margin-top:3px}
+.d-row5{display:flex;gap:6px}
+.d-tile{flex:1;min-width:0;text-align:center;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:6px 3px 5px}
+.d-tile.on{border-color:var(--accent);background:var(--ph)}
+.d-thumb{display:block;width:100%;height:18px;border-radius:3px;margin-bottom:4px;border:1px solid var(--line)}
+.d-tile span{font-size:8.5px;color:var(--ink2);white-space:nowrap}
+.d-tile.on span{color:var(--ink)}
+.d-row4{display:flex;gap:6px}
+.d-tile4{flex:1;min-width:0;text-align:center;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:6px 3px 5px}
+.d-tile4.on{border-color:var(--accent);background:var(--ph)}
+.d-mark2{display:inline-flex;gap:2px;margin-bottom:3px}
+.d-mark2 i{width:13px;height:13px;border-radius:2px;display:block;border:.5px solid var(--line2)}
+.d-tile4 span{display:block;font-size:8.5px;color:var(--ink2)}
+.d-tile4.on span{color:var(--ink)}
+.d-custom{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:8px 10px;margin-top:10px}
+.d-swatch{width:19px;height:19px;border-radius:5px;background:var(--accent);flex:none}
+.d-custom .t{flex:1;font-size:10px;color:var(--ink)}
+.d-custom .t span{display:block;font-size:8.5px;color:var(--ink2);margin-top:1px}
+.d-custom .a{font-size:9px;color:var(--ink2)}
+.d-foot{text-align:center;font-size:8.5px;line-height:1.6;color:var(--ink3);margin-top:11px}
+.spec{flex:1;min-width:300px;max-width:440px;display:flex;flex-direction:column;gap:0}
+.spec-row{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+.spec-k{flex:0 0 118px;font:500 9.5px/1.7 var(--mono);letter-spacing:.06em;color:var(--gold)}
+.spec-v{flex:1;font-size:11.5px;line-height:1.7;color:var(--ink2)}
+.spec-v b{color:var(--ink);font-weight:600}
+.chips-mock{border:1px solid var(--line);border-radius:16px;background:var(--card);padding:16px 18px;display:flex;gap:10px;overflow-x:auto}
+.c-chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 15px;border-radius:12px;background:var(--card2);border:1px solid var(--line);font-size:12.5px;color:var(--ink2);white-space:nowrap}
+.c-chip.on{border-color:var(--gold);color:var(--ink)}
+.dots{display:inline-flex}
+.dots i{display:block;width:8px;height:8px;border-radius:50%}
+.dots i+i{margin-left:-2px}
+.acc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.acc-item{display:flex;gap:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);padding:11px 13px}
+.acc-n{flex:0 0 24px;font:600 10px/1.9 var(--mono);color:var(--gold)}
+.acc-t{font-size:12px;line-height:1.7;color:var(--ink2)}
+.foot{margin-top:72px;border-top:1px solid var(--line);padding-top:20px;display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;font:500 10px/1.8 var(--mono);color:var(--ink3);letter-spacing:.04em}
+@media (max-width:980px){.a-grid{grid-template-columns:1fr 1fr}.use-grid{grid-template-columns:1fr}.sec-h{flex-wrap:wrap}.sec-d{margin-left:0;text-align:left;max-width:none}}
+@media (max-width:620px){.wrap{padding:34px 16px 30px}h1{font-size:29px}.sec{margin-top:44px}.a-grid{grid-template-columns:1fr}.acc-grid{grid-template-columns:1fr}.chips-mock{padding:13px;flex-wrap:wrap;overflow:visible}.dev{width:100%;padding:8px;border-radius:38px}.dev-scr{border-radius:31px}.d-title{font-size:18px}.d-body{padding:3px 13px 12px}.marks{gap:12px;padding:12px}.ct-scroll{border:0;background:transparent;border-radius:0}.ctable th:nth-child(1),.ctable td:nth-child(1),.ctable th:nth-child(3),.ctable td:nth-child(3){display:none}.ctable th{padding:8px 6px;font-size:8.5px;letter-spacing:.1em}.ctable td{padding:7px 6px;font-size:10.5px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="eyebrow">Echo · 主题面板 / Color V2 · 2026-11-23</div>
+<h1>日间是纸上的墨，<br>夜间是灯下的光。</h1>
+<p class="lede">新强调色系 <b>金 / 青 / 紫 / 墨</b> 四色：夜间保留用户认可的灯色，日间统一退为低彩度墨色；四套底色共用同一组日间墨值，浅纸不再出现“彩色贴纸”。预设从 4×5 小卡阵改为 <b>一卡两轴</b>，外观与强调色仍独立组合。</p>
+<div class="meta"><span class="m-chip"><b>4</b> 强调色</span><span class="m-chip"><b>16</b> 预设组合</span><span class="m-chip">日间最低 <b>5.58:1</b></span><span class="m-chip">夜间最低 <b>6.79:1</b></span><span class="m-chip">WCAG AA 全通过</span><span class="m-chip">不改 .kt · 仅提案</span></div>
+<section class="sec"><div class="sec-h"><span class="sec-n">01</span><h2>新强调色系</h2><div class="sec-d">左：夜间（墨黑底 #050608）；右：日间（纸白底 #F4F2ED）。日间墨值对纸白 / 暖黄 / 淡绿三套通用。</div></div>
+<div class="a-grid">
+<article class="a-card">
+<div class="a-pair"><div class="a-half a-night"><div class="a-lamp" style="background:#F2A65A;box-shadow:0 0 42px #F2A65A55"></div><span>NIGHT · 灯</span></div>
+<div class="a-half a-day"><div class="a-ink" style="background:#7E4723"></div><span>DAY · 墨</span></div></div>
+<div class="a-name"><span class="a-cn">金</span><span class="a-id">gold</span></div>
+<div class="a-hex"><span><em>夜 </em>#F2A65A</span><span><em>日 </em>#7E4723</span></div>
+<div class="a-min"><span>最低对比 <b>5.59:1</b> 日 / <b>8.18:1</b> 夜</span></div>
+<div class="a-note">用户认可的夜灯，日间焦茶墨</div>
+</article>
+<article class="a-card">
+<div class="a-pair"><div class="a-half a-night"><div class="a-lamp" style="background:#6FD3B4;box-shadow:0 0 42px #6FD3B455"></div><span>NIGHT · 灯</span></div>
+<div class="a-half a-day"><div class="a-ink" style="background:#016059"></div><span>DAY · 墨</span></div></div>
+<div class="a-name"><span class="a-cn">青</span><span class="a-id">pine</span></div>
+<div class="a-hex"><span><em>夜 </em>#6FD3B4</span><span><em>日 </em>#016059</span></div>
+<div class="a-min"><span>最低对比 <b>5.58:1</b> 日 / <b>9.18:1</b> 夜</span></div>
+<div class="a-note">夜间冷光最克制，日间松烟墨</div>
+</article>
+<article class="a-card">
+<div class="a-pair"><div class="a-half a-night"><div class="a-lamp" style="background:#B998DF;box-shadow:0 0 42px #B998DF55"></div><span>NIGHT · 灯</span></div>
+<div class="a-half a-day"><div class="a-ink" style="background:#614C79"></div><span>DAY · 墨</span></div></div>
+<div class="a-name"><span class="a-cn">紫</span><span class="a-id">amethyst</span></div>
+<div class="a-hex"><span><em>夜 </em>#B998DF</span><span><em>日 </em>#614C79</span></div>
+<div class="a-min"><span>最低对比 <b>5.58:1</b> 日 / <b>6.79:1</b> 夜</span></div>
+<div class="a-note">替代蓝，与金同屏不打架</div>
+</article>
+<article class="a-card">
+<div class="a-pair"><div class="a-half a-night"><div class="a-lamp" style="background:#D9D2C6;box-shadow:0 0 42px #D9D2C655"></div><span>NIGHT · 灯</span></div>
+<div class="a-half a-day"><div class="a-ink" style="background:#37312A"></div><span>DAY · 墨</span></div></div>
+<div class="a-name"><span class="a-cn">墨</span><span class="a-id">ink</span></div>
+<div class="a-hex"><span><em>夜 </em>#D9D2C6</span><span><em>日 </em>#37312A</span></div>
+<div class="a-min"><span>最低对比 <b>9.61:1</b> 日 / <b>11.02:1</b> 夜</span></div>
+<div class="a-note">替代白，中性永不撞危险色</div>
+</article>
+</div></section>
+<section class="sec"><div class="sec-h"><span class="sec-n">02</span><h2>对比度实测</h2><div class="sec-d">accent 对 Void / Panel / PanelHigh。文字小字门槛 4.5:1，边框与选中态 3:1；全部超配。</div></div>
+<div class="ct-scroll"><table class="ctable"><thead><tr><th>强调色</th><th>场景 · 底色</th><th>accent</th><th>vs Void</th><th>vs Panel</th><th>vs PanelHigh</th><th>判定</th></tr></thead><tbody>
+<tr class="ct-group"><td colspan="7">金 <span class="g">GOLD</span></td></tr>
+<tr><td>金</td><td>日 · 纸白 paper</td><td>#7E4723</td><td>6.67</td><td>6.18</td><td>5.63</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>金</td><td>日 · 暖黄 warm</td><td>#7E4723</td><td>6.57</td><td>6.12</td><td>5.59</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>金</td><td>日 · 淡绿 green</td><td>#7E4723</td><td>6.61</td><td>6.29</td><td>5.83</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>金</td><td>夜 · 墨黑 ink</td><td>#F2A65A</td><td>10.02</td><td>9.04</td><td>8.18</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr class="ct-group"><td colspan="7">青 <span class="g">PINE</span></td></tr>
+<tr><td>青</td><td>日 · 纸白 paper</td><td>#016059</td><td>6.66</td><td>6.17</td><td>5.62</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>青</td><td>日 · 暖黄 warm</td><td>#016059</td><td>6.56</td><td>6.11</td><td>5.58</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>青</td><td>日 · 淡绿 green</td><td>#016059</td><td>6.60</td><td>6.27</td><td>5.81</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>青</td><td>夜 · 墨黑 ink</td><td>#6FD3B4</td><td>11.25</td><td>10.15</td><td>9.18</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr class="ct-group"><td colspan="7">紫 <span class="g">AMETHYST</span></td></tr>
+<tr><td>紫</td><td>日 · 纸白 paper</td><td>#614C79</td><td>6.66</td><td>6.17</td><td>5.62</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>紫</td><td>日 · 暖黄 warm</td><td>#614C79</td><td>6.56</td><td>6.11</td><td>5.58</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>紫</td><td>日 · 淡绿 green</td><td>#614C79</td><td>6.60</td><td>6.27</td><td>5.81</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>紫</td><td>夜 · 墨黑 ink</td><td>#B998DF</td><td>8.32</td><td>7.51</td><td>6.79</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr class="ct-group"><td colspan="7">墨 <span class="g">INK</span></td></tr>
+<tr><td>墨</td><td>日 · 纸白 paper</td><td>#37312A</td><td>11.48</td><td>10.63</td><td>9.69</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>墨</td><td>日 · 暖黄 warm</td><td>#37312A</td><td>11.30</td><td>10.53</td><td>9.61</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>墨</td><td>日 · 淡绿 green</td><td>#37312A</td><td>11.37</td><td>10.81</td><td>10.02</td><td class="ct-ok">✓ ≥4.5</td></tr>
+<tr><td>墨</td><td>夜 · 墨黑 ink</td><td>#D9D2C6</td><td>13.50</td><td>12.18</td><td>11.02</td><td class="ct-ok">✓ ≥4.5</td></tr>
+</tbody></table></div></section>
+<section class="sec"><div class="sec-h"><span class="sec-n">03</span><h2>五处用途</h2><div class="sec-d">选中态、Chip、实心按钮、发送键、冒号标记块。日间墨色只做“点”，面积 ≤5%。</div></div>
+<div class="use-grid">
+<div class="ui"><div class="ui-cap">夜间 · 金 / INK · GOLD</div><div class="ui-inner" style="--ui-bg:#050608;--ui-panel:#12151A;--ui-line:rgba(243,239,231,.14);--ui-ink:#F3EFE7;--ui-ink2:#A8ADB5;--ui-accent:#F2A65A;--ui-on:#050608;--ui-soft:rgba(242,166,90,.10)">
+<div class="ui-k">选中行 / SELECTED</div><div class="ui-row on"><span class="ui-mark"><i style="background:#F3EFE7"></i><i style="background:#F2A65A"></i></span><span class="t">示例对话 · 一段很久以前的讨论</span><span class="s">已恢复</span></div>
+<div class="ui-k">CHIP / 选中</div><div class="ui-flex"><span class="ui-chip"><i></i>深度思考</span><span class="ui-chip" style="border-color:rgba(243,239,231,.14);color:#A8ADB5">联网</span></div>
+<div class="ui-k">动作 / SEND &amp; CTA</div><div class="ui-flex" style="justify-content:space-between"><span class="ui-btn">付费复活此会话</span><span class="ui-send"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span></div>
+<div class="ui-k">链接 / LINK</div><div><span class="ui-link">查看上下文详情</span></div>
+</div></div>
+<div class="ui"><div class="ui-cap">暖黄 · 紫 / WARM · AMETHYST</div><div class="ui-inner" style="--ui-bg:#F7F0DF;--ui-panel:#F1E8D3;--ui-line:rgba(42,33,21,.14);--ui-ink:#2A2115;--ui-ink2:#63553F;--ui-accent:#614C79;--ui-on:#F7F0DF;--ui-soft:rgba(97,76,121,.09)">
+<div class="ui-k">选中行 / SELECTED</div><div class="ui-row on"><span class="ui-mark"><i style="background:#2A2115"></i><i style="background:#614C79"></i></span><span class="t">示例对话 · 一段很久以前的讨论</span><span class="s">已恢复</span></div>
+<div class="ui-k">CHIP / 选中</div><div class="ui-flex"><span class="ui-chip"><i></i>深度思考</span><span class="ui-chip" style="border-color:rgba(42,33,21,.14);color:#63553F">联网</span></div>
+<div class="ui-k">动作 / SEND &amp; CTA</div><div class="ui-flex" style="justify-content:space-between"><span class="ui-btn">付费复活此会话</span><span class="ui-send"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span></div>
+<div class="ui-k">链接 / LINK</div><div><span class="ui-link">查看上下文详情</span></div>
+</div></div>
+</div>
+<div class="marks">
+<div class="mark-item"><span class="mark-pair"><i style="background:#050608;border:1px solid rgba(255,255,255,.25)"></i><i style="background:#F2A65A"></i></span><span class="lbl"><b>金 · 夜</b>#F2A65A</span></div>
+<div class="mark-item"><span class="mark-pair"><i style="background:#F4F2ED;border:1px solid rgba(16,17,20,.2)"></i><i style="background:#7E4723"></i></span><span class="lbl"><b>金 · 日</b>#7E4723</span></div>
+<div class="mark-item"><span class="mark-pair"><i style="background:#050608;border:1px solid rgba(255,255,255,.25)"></i><i style="background:#6FD3B4"></i></span><span class="lbl"><b>青 · 夜</b>#6FD3B4</span></div>
+<div class="mark-item"><span class="mark-pair"><i style="background:#F4F2ED;border:1px solid rgba(16,17,20,.2)"></i><i style="background:#016059"></i></span><span class="lbl"><b>青 · 日</b>#016059</span></div>
+<div class="mark-item"><span class="mark-pair"><i style="background:#050608;border:1px solid rgba(255,255,255,.25)"></i><i style="background:#B998DF"></i></span><span class="lbl"><b>紫 · 夜</b>#B998DF</span></div>
+<div class="mark-item"><span class="mark-pair"><i style="background:#F4F2ED;border:1px solid rgba(16,17,20,.2)"></i><i style="background:#614C79"></i></span><span class="lbl"><b>紫 · 日</b>#614C79</span></div>
+<div class="mark-item"><span class="mark-pair"><i style="background:#050608;border:1px solid rgba(255,255,255,.25)"></i><i style="background:#D9D2C6"></i></span><span class="lbl"><b>墨 · 夜</b>#D9D2C6</span></div>
+<div class="mark-item"><span class="mark-pair"><i style="background:#F4F2ED;border:1px solid rgba(16,17,20,.2)"></i><i style="background:#37312A"></i></span><span class="lbl"><b>墨 · 日</b>#37312A</span></div>
+</div></section>
+<section class="sec" id="devices"><div class="sec-h"><span class="sec-n">04</span><h2>主推方案 A · 一卡两轴</h2><div class="sec-d">删掉 4×5 小卡阵：一张 104dp 当前组合卡 + 底色 5 瓦片 + 强调色 4 瓦片 + 自定义行，默认一屏不滚动。</div></div>
+<div class="devices">
+<div class="dev" style="--bg:#050608;--panel:#12151A;--ph:#1B1F25;--ink:#F3EFE7;--ink2:#A8ADB5;--ink3:#6F757E;--line:rgba(243,239,231,.14);--line2:rgba(243,239,231,.22);--accent:#F2A65A;--on:#050608">
+<div class="dev-scr"><div class="d-status"><span>21:04</span><span class="d-sig">5G ▮▮▮ 56</span></div><div class="d-body">
+<div class="d-grab"></div>
+<div class="d-head"><span class="d-title">主题</span><span class="d-close">×</span></div>
+<div class="d-sub">改完立即生效；日间是纸上的墨，夜间是灯下的光。</div>
+<div class="d-lab">当前组合</div>
+<div class="d-combo"><span class="d-mark"><i style="background:#F3EFE7"></i><i style="background:#F2A65A"></i></span><div class="d-combo-t"><b>夜间 · 金</b><span>墨黑底 · 琥珀灯</span></div><div class="d-sendbox"><span class="d-send2"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span><span class="d-sendlab">SEND</span></div></div>
+<div class="d-lab">底色</div><div class="d-row5">
+<div class="d-tile"><span class="d-thumb" style="background:#F4F2ED"></span><span>纸白</span></div>
+<div class="d-tile"><span class="d-thumb" style="background:#F7F0DF"></span><span>暖黄</span></div>
+<div class="d-tile"><span class="d-thumb" style="background:#EEF3E6"></span><span>淡绿</span></div>
+<div class="d-tile on"><span class="d-thumb" style="background:#050608"></span><span>夜间</span></div>
+<div class="d-tile"><span class="d-thumb" style="background:#D9D2C6"></span><span>自选</span></div>
+</div>
+<div class="d-lab">强调色</div><div class="d-row4">
+<div class="d-tile4 on"><span class="d-mark2"><i style="background:#F3EFE7"></i><i style="background:#F2A65A"></i></span><span>金</span></div>
+<div class="d-tile4"><span class="d-mark2"><i style="background:#F3EFE7"></i><i style="background:#6FD3B4"></i></span><span>青</span></div>
+<div class="d-tile4"><span class="d-mark2"><i style="background:#F3EFE7"></i><i style="background:#B998DF"></i></span><span>紫</span></div>
+<div class="d-tile4"><span class="d-mark2"><i style="background:#F3EFE7"></i><i style="background:#D9D2C6"></i></span><span>墨</span></div>
+</div>
+<div class="d-custom"><span class="d-swatch"></span><div class="t">自定义强调色<span>HSL 选色；冒号指示块同步显示</span></div><span class="a">选择 →</span></div>
+<div class="d-foot">长按顶栏主题按钮并下滑，也可打开这里。<br>颜色仅保存在本机。</div>
+</div></div></div>
+<div class="dev" style="--bg:#F7F0DF;--panel:#F1E8D3;--ph:#E9DEC5;--ink:#2A2115;--ink2:#63553F;--ink3:#8B7C63;--line:rgba(42,33,21,.14);--line2:rgba(42,33,21,.22);--accent:#614C79;--on:#F7F0DF">
+<div class="dev-scr"><div class="d-status"><span>21:04</span><span class="d-sig">5G ▮▮▮ 56</span></div><div class="d-body">
+<div class="d-grab"></div>
+<div class="d-head"><span class="d-title">主题</span><span class="d-close">×</span></div>
+<div class="d-sub">改完立即生效；日间是纸上的墨，夜间是灯下的光。</div>
+<div class="d-lab">当前组合</div>
+<div class="d-combo"><span class="d-mark"><i style="background:#2A2115"></i><i style="background:#614C79"></i></span><div class="d-combo-t"><b>暖黄 · 紫</b><span>米纸底 · 紫毫墨</span></div><div class="d-sendbox"><span class="d-send2"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span><span class="d-sendlab">SEND</span></div></div>
+<div class="d-lab">底色</div><div class="d-row5">
+<div class="d-tile"><span class="d-thumb" style="background:#F4F2ED"></span><span>纸白</span></div>
+<div class="d-tile on"><span class="d-thumb" style="background:#F7F0DF"></span><span>暖黄</span></div>
+<div class="d-tile"><span class="d-thumb" style="background:#EEF3E6"></span><span>淡绿</span></div>
+<div class="d-tile"><span class="d-thumb" style="background:#050608"></span><span>夜间</span></div>
+<div class="d-tile"><span class="d-thumb" style="background:#D9D2C6"></span><span>自选</span></div>
+</div>
+<div class="d-lab">强调色</div><div class="d-row4">
+<div class="d-tile4"><span class="d-mark2"><i style="background:#2A2115"></i><i style="background:#7E4723"></i></span><span>金</span></div>
+<div class="d-tile4"><span class="d-mark2"><i style="background:#2A2115"></i><i style="background:#016059"></i></span><span>青</span></div>
+<div class="d-tile4 on"><span class="d-mark2"><i style="background:#2A2115"></i><i style="background:#614C79"></i></span><span>紫</span></div>
+<div class="d-tile4"><span class="d-mark2"><i style="background:#2A2115"></i><i style="background:#37312A"></i></span><span>墨</span></div>
+</div>
+<div class="d-custom"><span class="d-swatch"></span><div class="t">自定义强调色<span>HSL 选色；冒号指示块同步显示</span></div><span class="a">选择 →</span></div>
+<div class="d-foot">长按顶栏主题按钮并下滑，也可打开这里。<br>颜色仅保存在本机。</div>
+</div></div></div>
+<div class="spec">
+<div class="spec-row"><div class="spec-k">尺寸 / SIZE</div><div class="spec-v">面板宽 max 560dp、高 0.9 屏、上圆角 28dp；卡内边距 14/16dp。</div></div>
+<div class="spec-row"><div class="spec-k">当前组合卡</div><div class="spec-v">高 104dp、圆角 18dp、bg PanelHigh、边框 1dp Hair；标记块 34dp、组合名 15sp/600、说明 11sp Muted、发送键样例 40dp。</div></div>
+<div class="spec-row"><div class="spec-k">底色瓦片</div><div class="spec-v">5 枚 weight(1f)，高 64dp，间距 8dp；缩略 24×28dp 圆角 7dp；选中 1.5dp accent 边框 + PanelHigh。</div></div>
+<div class="spec-row"><div class="spec-k">强调色瓦片</div><div class="spec-v">4 枚 weight(1f)，高 68dp；标记 24dp + 11sp；选中 1.5dp accent 边框，不再用半透明 Ivory。</div></div>
+<div class="spec-row"><div class="spec-k">自定义行</div><div class="spec-v">高 56dp、圆角 14dp、当前色块 26dp；点开复用现有 HSL 编辑器。</div></div>
+<div class="spec-row"><div class="spec-k">触区 / TOUCH</div><div class="spec-v">全部可点元素 ≥48dp；瓦片整块可点，卡片不可点。</div></div>
+<div class="spec-row"><div class="spec-k">密度 / FIT</div><div class="spec-v">内容约 540dp < 782dp 可用高，默认一屏不滚动；仅展开 HSL 时滚动。</div></div>
+<div class="spec-row"><div class="spec-k">可达性 / COMBO</div><div class="spec-v">4 预设外观 × 4 强调 = 16 组合，加自选外观 20 种，自定义强调色可到 25 种；任意交叉。</div></div>
+<div class="spec-row"><div class="spec-k">备注 / NOTE</div><div class="spec-v">旧 20 = 4 外观 × 5 强调；新 16 = 4 × 4。少掉的正是用户说难看的蓝 / 陶 / 白组合；若加回第 5 色「朱」，自动回到 4×5=20。</div></div>
+</div></div></section>
+<section class="sec"><div class="sec-h"><span class="sec-n">05</span><h2>备选方案 B · 两轴 + 精选</h2><div class="sec-d">A 的基础上加一行 44dp 文字 chip（不是色卡）；推荐先落地 A，B 作为增量。</div></div>
+<div class="chips-mock">
+<span class="c-chip on"><span class="dots"><i style="background:#EDE8DF"></i><i style="background:#F2A65A"></i></span>夜间 · 金</span>
+<span class="c-chip"><span class="dots"><i style="background:#EDE8DF"></i><i style="background:#7E4723"></i></span>日间 · 金</span>
+<span class="c-chip"><span class="dots"><i style="background:#EDE8DF"></i><i style="background:#614C79"></i></span>暖黄 · 紫</span>
+<span class="c-chip"><span class="dots"><i style="background:#EDE8DF"></i><i style="background:#016059"></i></span>淡绿 · 青</span>
+</div>
+<div class="spec" style="max-width:none;margin-top:14px"><div class="spec-row"><div class="spec-k">取舍 / TRADE</div><div class="spec-v">优点：一键命中常见组合；代价：多一行约 52dp、多一个横向滚动容器，且 curated chips 本质仍是“小卡”，必须文字 chip 而非色卡，否则回到被否掉的矩阵观感。推荐：<b>先落地 A</b>。</div></div></div></section>
+<section class="sec"><div class="sec-h"><span class="sec-n">06</span><h2>面板 IA 与验收</h2><div class="sec-d">外观在前、组合居中、自定义在后；只有两条轴。</div></div>
+<div class="acc-grid">
+<div class="acc-item"><span class="acc-n">01</span><span class="acc-t">标题 + 关闭，副标「改完立即生效；日间是纸上的墨，夜间是灯下的光。」</span></div>
+<div class="acc-item"><span class="acc-n">02</span><span class="acc-t">当前组合：104dp 预览卡，实时反映外观 × 强调色，不可点击。</span></div>
+<div class="acc-item"><span class="acc-n">03</span><span class="acc-t">底色：5 瓦片（纸白 / 暖黄 / 淡绿 / 夜间 / 自选），只切外观，强调色不变。</span></div>
+<div class="acc-item"><span class="acc-n">04</span><span class="acc-t">强调色：4 瓦片（金 / 青 / 紫 / 墨）+ 自定义行；只切强调色，外观不变。</span></div>
+<div class="acc-item"><span class="acc-n">05</span><span class="acc-t">自定义底色：默认折叠 HSL，点“自选”展开；夜间仍回落墨黑。</span></div>
+<div class="acc-item"><span class="acc-n">06</span><span class="acc-t">页脚：长按顶栏主题按钮并下滑也可打开；颜色仅保存在本机。</span></div>
+<div class="acc-item"><span class="acc-n">07</span><span class="acc-t">验收：一屏无滚动、16 组合文案正确、边框 ≥3:1、小字 ≥4.5:1。</span></div>
+<div class="acc-item"><span class="acc-n">08</span><span class="acc-t">验收：老数据迁移只执行一次；自定义强调色与自定义底色互不覆盖。</span></div>
+<div class="acc-item"><span class="acc-n">09</span><span class="acc-t">验收：夜间 · 金下发送键 / 复活按钮 / Chip 选中态边界清晰。</span></div>
+<div class="acc-item"><span class="acc-n">10</span><span class="acc-t">验收：日间纸白 / 暖黄 / 淡绿上强调色呈墨色，无“彩色贴纸”感。</span></div>
+<div class="acc-item"><span class="acc-n">11</span><span class="acc-t">验收：暖黄不撞色、淡绿不荧光；危险色只用于错误且带图标。</span></div>
+<div class="acc-item"><span class="acc-n">12</span><span class="acc-t">验收：所有可点元素热区 ≥48dp，无 30dp 小卡残留。</span></div>
+</div></section>
+<div class="foot"><span>ECHO · COLOR V2 · 2026-11-23</span><span>对比度按 WCAG 2.1 在 sRGB 实测 · 单文件无外部依赖</span><span>仅提案 · 不改 .kt</span></div>
+</div></body></html>

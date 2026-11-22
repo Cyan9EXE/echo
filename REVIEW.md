@@ -58,9 +58,11 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
   - 首启日志出现 `ProfileInstaller: Installing profile for app.xuxie`，随后 `/data/misc/profiles/ref/app.xuxie/primary.prof` 为 6190 B；二次启动变为 `Skipping profile installation`（已安装，正确去重）。
   - `adb shell cmd package compile -m speed-profile -f app.xuxie` → `dumpsys package dexopt` 显示 `[status=speed-profile]`；oat 产物 `base.odex 4,177,768 B / base.vdex 2,305,844 B / base.art 553,840 B`，确认走的是 AOT 而非 verify。
   - 注意顺序：设备上还没有 profile 时直接 `-m speed-profile` 会落回 `status=verify`；先让 profileinstaller 写入 ref profile，再编译，才会得到 speed-profile。
-  - 模拟器冷启动（软件渲染，`am start -W -S`）AOT 后 954 / 1001 / 1014 ms，与 verify 状态基本持平——x86 模拟器启动瓶颈在 Compose 布局/窗口而非 dex 校验；真机收益需在真机同版本前后对比。
+  - **真机冷启动对比**（LQAVP23928C105TX / TYH631M，0.9.2 / versionCode 13，`am start -W -S` 各 5 次、交替编译消除漂移）：verify（无 AOT）483–498 ms、中位 489 ms；speed-profile（baseline profile 引导的 AOT）392–413 ms、中位 400 ms——**中位提速约 18%**。
+  - 结论：`baseline.prof` 已被 AGP/R8 正确消费并写入 reference profile；profile 引导的 speed-profile 是本机最优编译模式。`-m speed`（全量 AOT）反而 426–456 ms：编译了 profile 之外的冷代码、odex 变大、页错误增多，故不采用。
+  - 真机非 root，`/data/misc/profiles/ref/...` 不可读、`dumpsys package dexopt` 也不输出该包状态；上述结论用「同设备交替编译 + 冷启动计时」验证，比读 profile 文件更贴近真实收益。
 
-### 0.9.3（2026-11-23）主题系统 · 抽屉修复 · 官方图标
+### 主题系统 · 抽屉修复 · 官方图标（并入 0.9.2 / versionCode 13）
 
 - **顶栏主题控件**：恢复日/月图标（Canvas 形变），右侧新增「冒号式双色指示块」——两块独立圆角块，上方是底色、下方是强调色。点按图标切日/夜；在图标上按住下滑（>26dp）打开主题面板；点指示块也可打开面板。
 - **指示块四态**：日/夜 = 上白亮 + 下彩暗；自定义 = 上灰暗 + 下彩亮；护眼日间 = 上鹅黄/果绿亮 + 下彩暗；护眼自定义 = 上黄绿暗 + 下彩亮。
@@ -68,8 +70,16 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **控件比例回退**：深度思考 / 联网 / 关键词 / 联想 / 按时间 / 按条数 / 按总字数 → 34dp 高、17dp 圆角、左右 10dp、11sp，与文字比例匹配；抽屉搜索模式 tab 同步。抽屉「答疑」字号 13sp Medium。
 - **抽屉会话行（A1）**：行与右侧 × 改为同级可点区域；列表改用 derivedStateOf 观察 sessions/revision/搜索条件，删除后立即消失、计数同步；删除同时 revision++ 并以 forceIndex 重写 index.json，杀进程重启不再复活。
 - **对齐官方**：深度思考/联网图标改为官方矢量（ThinkGlyph/WebGlyph，14dp）；助手名与剪贴板文案统一 DeepSeek；导入历史对话改为底部轻量气泡（无遮罩、点外关闭，保留「以后不再提示」）；欢迎页补两行提示（优先官方免费额度 / 勿共用泄露 Key）。
-- **真机验证**（LQAVP23928C105TX，1080x2388，0.9.3 versionCode 14）：夜间/日间/暖黄/淡绿/白色皮肤（夜）/ 自定义 HSL 逐项截图核对；日间选中第 5 色显示「黑」；冒号指示块四态与预期一致；删除会话立即消失且重启不复活。
+- **真机验证**（LQAVP23928C105TX，1080x2388，0.9.2 versionCode 13）：夜间/日间/暖黄/淡绿/白色皮肤（夜）/ 自定义 HSL 逐项截图核对；日间选中第 5 色显示「黑」；冒号指示块四态与预期一致；删除会话立即消失且重启不复活。
 - **构建**：BUILD SUCCESSFUL，release APK 1,373,477 B，sha256 d065b69257cad0a288c0f6b8ff28cd88ab414e94382c322cbc93813ead44705c。
+
+### 性能（真机实测，0.9.2 / versionCode 13）
+
+- **上下文条轮询**：流式生成时每 500ms 刷新 token 估算。原实现每次都遍历整段会话（`historyMessages()` 过滤 + `sumOf`，长会话持续产生临时 List/String 垃圾）；现在发送时缓存历史字符数 `contextBaseChars`，轮询只叠加当前回复的 `text.length`（O(1)），`onDone/onError/stopGenerating` 再全量校准一次。`refreshContextTokens()` 移到 `streaming = true` 之后调用，缓存才会生效。
+- **冷启动**：baseline profile 引导的 speed-profile AOT 中位 400 ms（verify 489 ms，约 -18%）。
+- **对话滚动**（536 轮「意识」会话，连续上/下各 8 次 swipe，`dumpsys gfxinfo`）：Total frames 723–766，modern jank 0.55%–2.65%（多轮中位约 2.2%），90th/99th percentile 11–13 ms。曾出现一次 50%+ 的异常轮：`Slow issue draw commands` 368 而 `Slow UI thread` 仅 29，判断为系统侧 GPU/窗口干扰（Huawei 系统进程），不是应用主线程卡顿。
+- **已确认无隐藏热点**：无 `rememberInfiniteTransition`、无持续无限动画；抽屉列表 `computeDrawerView` 走 `derivedStateOf`；`revision` 只在抽屉派生缓存读取（流式 publish 不会整屏重组）；会话索引在 `echo-store` 单线程解析；`KeyVault` 只在有 Key 时才访问 Keystore；欢迎页入场动画走 `graphicsLayer` lambda（绘制阶段读值，不触发重组）。
+- **模式差异**：性能模式（设置 → 运行模式）把存储线程提到 NORM、流式节流 70/45ms、保存延迟 260ms、更多会话常驻；正常模式 MIN/120/60ms、700ms、更积极 evict。
 
 ## 5. 已知限制
 
@@ -77,7 +87,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - 导入只保留当前分支；附件与图片不会重传；不提供「导出全部历史」。
 - release 使用 debug 签名，仅适合内测；上架需正式签名与隐私政策。
 - 联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路；UI 与请求结构已就绪（`web_search` 工具 + 引用渲染）。
-- 性能数据：模拟器为软件渲染（swiftshader），gfxinfo 的 jank 比例不适合作为最终指标；以真机帧率与主观流畅度为准。
+- 性能数据以真机（LQAVP23928C105TX，90Hz 档）为准；模拟器是软件渲染，其 gfxinfo jank 比例不作指标。
 
 ## 6. 怎么跑
 

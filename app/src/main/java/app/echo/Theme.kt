@@ -13,6 +13,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
 object C {
+    /** 外观：底色与面板的一套端点。CUSTOM 是日间第五种外观（用户自选底色）。 */
+    enum class Look(val id: String, val zh: String, val day: Boolean, val eye: Int) {
+        PAPER("paper", "日间", true, 0),
+        INK("ink", "夜间", false, 0),
+        WARM("warm", "暖黄", true, 1),
+        GREEN("green", "淡绿", true, 2),
+        CUSTOM("custom", "自定义", true, 0),
+    }
+
     var themeProgress by mutableFloatStateOf(0f)
 
     val skins = listOf(
@@ -37,6 +46,20 @@ object C {
 
     var eyeProgress by mutableFloatStateOf(0f)
 
+    /** 日间自定义底色开关；颜色存在 State，这里只保留渲染用的色相。 */
+    var customThemeOn by mutableStateOf(false)
+        private set
+    private var customTint: Color? = null
+
+    val look: Look
+        get() = when {
+            !isDay -> Look.INK
+            customThemeOn -> Look.CUSTOM
+            eyeMode == 1 -> Look.WARM
+            eyeMode == 2 -> Look.GREEN
+            else -> Look.PAPER
+        }
+
     fun initDay(value: Boolean) {
         isDay = value
         themeProgress = if (value) 1f else 0f
@@ -53,13 +76,45 @@ object C {
 
     fun applyEye(mode: Int) { eyeMode = mode.coerceIn(0, 2) }
 
+    fun initCustomTheme(argb: Int, enabled: Boolean) {
+        applyCustomTheme(if (enabled) argb else null)
+    }
+
+    /** argb = null 关闭自定义底色，回到当前外观的预设底色。 */
+    fun applyCustomTheme(argb: Int?) {
+        customTint = argb?.let { Color(it) }
+        customThemeOn = argb != null
+        voidRamp.applyCustom(customTint, 0.010f)
+        panelRamp.applyCustom(customTint, 0.010f)
+        panelHighRamp.applyCustom(customTint, 0.014f)
+        hairRamp.applyCustom(customTint, 0.008f)
+        promptRamp.applyCustom(customTint, 0.010f)
+    }
+
+    /** 面板里展示自选底色的柔和预览。 */
+    fun customField(): Color = customTint?.let { tinted(Color(0xFFF4F2ED), it, 0.03f) } ?: Color(0xFFF4F2ED)
+
+    /** 选色时预览「这个 ARGB 当底色会长什么样」，不改全局状态。 */
+    fun fieldPreview(argb: Int): Color = tinted(Color(0xFFF4F2ED), Color(argb), 0.03f)
+
+    fun previewVoid(look: Look): Color = when (look) {
+        Look.INK -> Color(0xFF050608)
+        Look.WARM -> Color(0xFFF7F0DF)
+        Look.GREEN -> Color(0xFFEEF3E6)
+        else -> Color(0xFFF4F2ED)
+    }
+
+    fun previewAccent(look: Look, index: Int): Color {
+        val i = index.coerceIn(0, skins.lastIndex)
+        return if (look == Look.INK) Color(ACCENT_NIGHT[i]) else Color(ACCENT_DAY[look.ordinal][i])
+    }
+
     fun accentAt(position: Float): Color {
-        val p = position.coerceIn(0f, skins.lastIndex.toFloat())
-        val i = floor(p).toInt().coerceAtMost(skins.lastIndex - 1)
+        val last = skins.lastIndex
+        val p = position.coerceIn(0f, last.toFloat())
+        val i = floor(p).toInt().coerceAtMost(last - 1)
         val f = p - i
-        val a = mixOklab(skins[i].night, skins[i].day, themeProgress)
-        val b = mixOklab(skins[i + 1].night, skins[i + 1].day, themeProgress)
-        return mixOklab(a, b, f)
+        return mixOklab(accentOf(i), accentOf(i + 1), f)
     }
 
     fun tone(accent: Color): Color = mixOklab(accent, Color.Black, 0.30f)
@@ -67,6 +122,24 @@ object C {
     fun eyeLit(): Color = if (eyeMode == 2) Color(0xFFCBE7BC) else Color(0xFFF5E3A8)
 
     fun eyeDim(): Color = mixOklab(eyeLit(), Color.Black, 0.38f)
+
+    /**
+     * 目标外观起点的底色亮度，用于决定这次外观切换的动画时长：
+     * 夜间与日间的亮度差接近 0.9，需要放慢；日间与护眼两档之间只差一点点。
+     */
+    fun voidLuminanceFor(day: Boolean, eye: Int = 0): Float {
+        if (day && eye == 0 && customThemeOn) return voidRamp.customDay().luminance()
+        val base = if (day) Color(0xFFF4F2ED) else Color(0xFF050608)
+        if (!day || eye == 0) return base.luminance()
+        val target = if (eye == 2) Color(0xFFEEF3E6) else Color(0xFFF7F0DF)
+        return mixOklab(base, target, 1f).luminance()
+    }
+
+    /** 预设强调色在当前的日夜/护眼进度下的实际颜色（自定义色不在此列）。 */
+    fun presetAccent(index: Int): Color {
+        if (index !in skins.indices) return Color.Transparent
+        return accentOf(index)
+    }
 
     fun mark(skinIndex: Int, custom: Color, accent: Color): ThemeMark {
         val customMode = skinIndex > skins.lastIndex
@@ -103,11 +176,27 @@ object C {
     val PromptBg get() = promptRamp.at(themeProgress)
 
     val Scrim get() = scrimRamp.at(themeProgress)
+
+    val ACCENT_ID = arrayOf("gold", "blue", "teal", "clay", "white")
+
+    /** 20 个预设：4 外观 × 5 强调色。外观决定底色，强调色只决定 accent。 */
+    val presets: List<Preset> = listOf(Look.PAPER, Look.INK, Look.WARM, Look.GREEN).flatMap { look ->
+        skins.mapIndexed { i, s ->
+            Preset(
+                id = look.id + "." + ACCENT_ID[i],
+                label = look.zh + " · " + s.label,
+                appearance = look,
+                accent = i,
+            )
+        }
+    }
 }
 
 data class Skin(val label: String, val night: Color, val day: Color)
 
 data class ThemeMark(val top: Color, val bottom: Color)
+
+data class Preset(val id: String, val label: String, val appearance: C.Look, val accent: Int)
 
 private fun inkFlip(bgLuminance: Float): Float {
     val t = ((bgLuminance - 0.16f) / 0.10f).coerceIn(0f, 1f)
@@ -172,11 +261,19 @@ private fun oklabToColor(l: Float, a: Float, b: Float, alpha: Float): Color {
     )
 }
 
+/** 只换色相、保留 OkLab 明度：自选底色不会把对比度拖坏。 */
+private fun tinted(base: Color, tint: Color, chroma: Float): Color {
+    val b = base.toOklab()
+    val t = tint.toOklab()
+    val c = kotlin.math.sqrt(t[1] * t[1] + t[2] * t[2])
+    if (c < 0.001f) return base
+    val k = chroma / c
+    return oklabToColor(b[0], t[1] * k, t[2] * k, base.alpha)
+}
+
 private class Ramp(
     private val night: Color,
     private val day: Color,
-    private val warmDay: Color = day,
-    private val greenDay: Color = day,
 ) {
     private val packed = IntArray(STOPS + 1)
 
@@ -197,14 +294,6 @@ private class Ramp(
     }
 
     fun at(t: Float): Color {
-        val base = raw(t)
-        val eye = C.eyeMode
-        if (eye == 0 || C.eyeProgress <= .001f || t <= .001f) return base
-        val target = if (eye == 2) greenDay else warmDay
-        return mixOklab(base, target, C.eyeProgress * t)
-    }
-
-    private fun raw(t: Float): Color {
         if (t <= 0f) return night
         if (t >= 1f) return day
         val x = t * STOPS
@@ -221,18 +310,75 @@ private class Ramp(
     }
 }
 
-private val voidRamp = Ramp(Color(0xFF050608), Color(0xFFF4F2ED), Color(0xFFF7F0DF), Color(0xFFEEF3E6))
-private val panelRamp = Ramp(Color(0xFF12151A), Color(0xFFEFE9DE), Color(0xFFF1E8D3), Color(0xFFE7EEDE))
-private val panelHighRamp = Ramp(Color(0xFF1B1F25), Color(0xFFE6DFD1), Color(0xFFE9DEC5), Color(0xFFDCE7D0))
-private val hairRamp = Ramp(Color(0x1FFFFFFF), Color(0x2B201D19), Color(0x2B6B5A2E), Color(0x2B384A2C))
-private val controlRamp = Ramp(Color(0xFF7A828E), Color(0xFF847E72), Color(0xFF857C64), Color(0xFF7A8A70))
+/**
+ * 一个 token 的完整外观轴：纸白 / 暖黄 / 淡绿三条 ramp，外加可选的自定义底色 ramp。
+ * 护眼档用 eyeProgress 平滑过渡；夜间三档都回同一墨端点。
+ */
+private class LookRamp(
+    private val night: Color,
+    private val paper: Color,
+    private val warmDay: Color = paper,
+    private val greenDay: Color = paper,
+) {
+    private val paperRamp = Ramp(night, paper)
+    private val warmRamp = Ramp(night, warmDay)
+    private val greenRamp = Ramp(night, greenDay)
+    private var customRamp: Ramp? = null
 
-private val ivoryRamp = Ramp(Color(0xFFF3EFE7), Color(0xFF1A1713), Color(0xFF2A2115), Color(0xFF1F2A1C))
-private val mutedRamp = Ramp(Color(0xFFA8ADB5), Color(0xFF5A544B), Color(0xFF6E604A), Color(0xFF5B6B51))
+    fun applyCustom(tint: Color?, chroma: Float) {
+        customRamp = if (tint == null) null else Ramp(night, tinted(paper, tint, chroma))
+    }
 
-private val blueRamp = Ramp(Color(0xFF7FA8FF), Color(0xFF2F55B8))
+    fun customDay(): Color = customRamp?.at(1f) ?: paper
 
-private val dangerRamp = Ramp(Color(0xFFFF6B6B), Color(0xFFB3261E))
-private val promptRamp = Ramp(Color(0xFF121A2A), Color(0xFFEFECE6), Color(0xFFF2EAD6), Color(0xFFE9F0E1))
+    fun at(t: Float): Color {
+        if (C.look == C.Look.CUSTOM) customRamp?.let { return it.at(t) }
+        val base = paperRamp.at(t)
+        val eye = C.eyeMode
+        if (C.look == C.Look.INK || eye == 0 || C.eyeProgress <= .001f || t <= .001f) return base
+        val target = if (C.look == C.Look.GREEN) greenRamp.at(t) else warmRamp.at(t)
+        return mixOklab(base, target, C.eyeProgress * t)
+    }
+}
 
-private val scrimRamp = Ramp(Color(0xB3000000), Color(0x66000000))
+/** 夜间强调色（全局共享）。 */
+private val ACCENT_NIGHT = longArrayOf(
+    0xFFF2A65A, 0xFF7FA8FF, 0xFF6FD3B4, 0xFFF49A7C, 0xFFF2EFE9,
+)
+
+/** 日间强调色：按外观分四套（暖黄、淡绿降饱和或偏色相避撞），行序同 Look。 */
+private val ACCENT_DAY = arrayOf(
+    longArrayOf(0xFF964E0C, 0xFF2F55B8, 0xFF1F6B57, 0xFF934A35, 0xFF121110),
+    longArrayOf(0xFF964E0C, 0xFF2F55B8, 0xFF1F6B57, 0xFF934A35, 0xFF121110),
+    longArrayOf(0xFF8A4E05, 0xFF2C4F9E, 0xFF14655C, 0xFFA2432A, 0xFF17130E),
+    longArrayOf(0xFF86560A, 0xFF2B4C93, 0xFF0F5F58, 0xFF9C4A32, 0xFF12160F),
+)
+
+private fun accentNight(i: Int): Color = Color(ACCENT_NIGHT[i])
+
+private fun accentDay(i: Int): Color {
+    val row = if (C.look == C.Look.CUSTOM) 0 else C.look.ordinal.coerceIn(0, 3)
+    return Color(ACCENT_DAY[row][i])
+}
+
+/** 当前日夜/护眼/自定义进度下某个强调色的实际颜色。 */
+private fun accentOf(i: Int): Color {
+    val idx = i.coerceIn(0, C.skins.lastIndex)
+    return mixOklab(accentNight(idx), accentDay(idx), C.themeProgress)
+}
+
+private val voidRamp = LookRamp(Color(0xFF050608), Color(0xFFF4F2ED), Color(0xFFF7F0DF), Color(0xFFEEF3E6))
+private val panelRamp = LookRamp(Color(0xFF12151A), Color(0xFFEFE9DE), Color(0xFFF1E8D3), Color(0xFFE7EEDE))
+private val panelHighRamp = LookRamp(Color(0xFF1B1F25), Color(0xFFE6DFD1), Color(0xFFE9DEC5), Color(0xFFDCE7D0))
+private val hairRamp = LookRamp(Color(0x1FFFFFFF), Color(0x2B201D19), Color(0x2B6B5A2E), Color(0x2B384A2C))
+private val controlRamp = LookRamp(Color(0xFF7A828E), Color(0xFF847E72), Color(0xFF857C64), Color(0xFF7A8A70))
+
+private val ivoryRamp = LookRamp(Color(0xFFF3EFE7), Color(0xFF1A1713), Color(0xFF2A2115), Color(0xFF1F2A1C))
+private val mutedRamp = LookRamp(Color(0xFFA8ADB5), Color(0xFF5A544B), Color(0xFF63553F), Color(0xFF4F5F46))
+
+private val blueRamp = LookRamp(Color(0xFF7FA8FF), Color(0xFF2F55B8), Color(0xFF2C4F9E), Color(0xFF2B4C93))
+
+private val dangerRamp = LookRamp(Color(0xFFFF6B6B), Color(0xFFB3261E), Color(0xFFA02418), Color(0xFF9E2619))
+private val promptRamp = LookRamp(Color(0xFF121A2A), Color(0xFFEFECE6), Color(0xFFF2EAD6), Color(0xFFE9F0E1))
+
+private val scrimRamp = LookRamp(Color(0xB3000000), Color(0x66000000))

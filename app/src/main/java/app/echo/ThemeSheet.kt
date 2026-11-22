@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,13 +39,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
 import kotlin.math.roundToInt
 
-// 主题面板：外观（日间 / 夜间 / 暖黄 / 淡绿）+ 主题色（5 预设 + 自定义 HSL）+ 说明。
+// 主题面板：外观（日间 / 夜间 / 暖黄 / 淡绿 / 自选）+ 预设矩阵（4 × 5）+ 强调色与两个 HSL 编辑器。
 @Composable
 internal fun ThemeSheet(state: AppState, accent: Color) {
     Surface(
@@ -80,48 +79,76 @@ internal fun ThemeSheet(state: AppState, accent: Color) {
 
                 SheetSection("外观")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppearanceOption(Modifier.weight(1f), "日间", Color(0xFFF4F2ED), state.dayMode && state.eyeMode == 0, accent) {
-                        if (!state.dayMode) state.toggleDay()
-                        if (state.eyeMode != 0) state.updateEyeMode(0)
-                    }
-                    AppearanceOption(Modifier.weight(1f), "夜间", Color(0xFF0B0D10), !state.dayMode, accent) {
-                        if (state.dayMode) state.toggleDay()
-                        if (state.eyeMode != 0) state.updateEyeMode(0)
-                    }
-                    AppearanceOption(Modifier.weight(1f), "暖黄", Color(0xFFF5E3A8), state.dayMode && state.eyeMode == 1, accent) {
-                        if (!state.dayMode) state.toggleDay()
-                        if (state.eyeMode != 1) state.updateEyeMode(1)
-                    }
-                    AppearanceOption(Modifier.weight(1f), "淡绿", Color(0xFFCBE7BC), state.dayMode && state.eyeMode == 2, accent) {
-                        if (!state.dayMode) state.toggleDay()
-                        if (state.eyeMode != 2) state.updateEyeMode(2)
-                    }
+                    AppearanceOption(
+                        Modifier.weight(1f), "日间", Color(0xFFF4F2ED),
+                        C.isDay && !C.customThemeOn && C.eyeMode == 0, accent,
+                    ) { state.applyAppearance(C.Look.PAPER) }
+                    AppearanceOption(
+                        Modifier.weight(1f), "夜间", Color(0xFF0B0D10),
+                        !C.isDay, accent,
+                    ) { state.applyAppearance(C.Look.INK) }
+                    AppearanceOption(
+                        Modifier.weight(1f), "暖黄", Color(0xFFF5E3A8),
+                        C.isDay && !C.customThemeOn && C.eyeMode == 1, accent,
+                    ) { state.applyAppearance(C.Look.WARM) }
+                    AppearanceOption(
+                        Modifier.weight(1f), "淡绿", Color(0xFFCBE7BC),
+                        C.isDay && !C.customThemeOn && C.eyeMode == 2, accent,
+                    ) { state.applyAppearance(C.Look.GREEN) }
+                    AppearanceOption(
+                        Modifier.weight(1f), "自选",
+                        if (C.customThemeOn) C.customField() else C.fieldPreview(state.customThemeArgb),
+                        C.isDay && C.customThemeOn, accent,
+                    ) { state.applyAppearance(C.Look.CUSTOM) }
                 }
                 Text(
                     "暖黄与淡绿是两档护眼配色，只在日间生效；底色、面板、分割线都会跟着走，强调色不变。",
                     color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
                 )
 
-                SheetSection("主题色")
+                if (C.isDay && C.customThemeOn) {
+                    HslEditor(
+                        seed = state.customThemeArgb,
+                        title = "自定义底色",
+                        hint = "松开滑杆后生效；色块与「自选」瓦片同步预览。",
+                        previewColor = { C.fieldPreview(it) },
+                        onCommit = { state.applyCustomTheme(it) },
+                    )
+                }
+
+                SheetSection("预设")
+                PresetGrid(state, accent)
+                Text(
+                    "预设只是「外观 × 强调色」的组合，可以交叉使用，例如暖黄底配蓝色强调。",
+                    color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
+                )
+
+                SheetSection("强调色")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    C.skins.forEachIndexed { index, skin ->
+                    C.skins.forEachIndexed { index, _ ->
                         ThemeSwatch(
                             modifier = Modifier.weight(1f),
                             label = C.skinLabel(index),
                             mark = C.mark(index, Color.Transparent, C.accentAt(index.toFloat())),
                             selected = !state.customMode && state.skinIndex == index,
-                            onClick = { state.updateSkin(index) },
+                            onClick = { state.applyAccent(index) },
                         )
                     }
                 }
-                CustomThemeRow(state, accent)
+                CustomAccentRow(state, accent)
                 Text(
                     "「白」只在夜间模式完整生效，日间会自动转为黑；色块上方是底色、下方是主题色。",
                     color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
                 )
 
                 if (state.customMode) {
-                    CustomColorEditor(state)
+                    HslEditor(
+                        seed = state.customAccent,
+                        title = "自定义强调色",
+                        hint = "松开滑杆后生效；指示块会同步显示自定义配色。",
+                        previewColor = { Color(it) },
+                        onCommit = { state.selectCustomAccent(it) },
+                    )
                 }
 
                 Spacer(Modifier.height(18.dp))
@@ -179,6 +206,67 @@ private fun AppearanceOption(
     }
 }
 
+// 4 行外观 × 5 列强调色的矩阵：色块是底色，右下角小点是该组合的强调色。
+@Composable
+private fun PresetGrid(state: AppState, accent: Color) {
+    val looks = listOf(C.Look.PAPER, C.Look.INK, C.Look.WARM, C.Look.GREEN)
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(Modifier.width(32.dp))
+            C.skins.forEach { skin ->
+                Text(
+                    skin.label, color = C.Muted, fontSize = 9.sp,
+                    textAlign = TextAlign.Center, modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        looks.forEach { look ->
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(look.zh, color = C.Muted, fontSize = 9.sp, modifier = Modifier.width(32.dp))
+                C.presets.filter { it.appearance == look }.forEach { preset ->
+                    val selected = !state.customThemeOn && !state.customMode &&
+                        C.look == preset.appearance && state.skinIndex == preset.accent
+                    PresetChip(Modifier.weight(1f), preset, selected, accent) {
+                        state.applyPreset(preset)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PresetChip(
+    modifier: Modifier,
+    preset: Preset,
+    selected: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        modifier
+            .height(30.dp)
+            .clip(shape)
+            .background(C.previewVoid(preset.appearance))
+            .border(1.dp, if (selected) accent else C.Hair, shape)
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            Modifier.align(Alignment.BottomEnd).padding(4.dp).size(9.dp).clip(CircleShape)
+                .background(C.previewAccent(preset.appearance, preset.accent)),
+        )
+    }
+}
+
 @Composable
 private fun ThemeSwatch(
     modifier: Modifier = Modifier,
@@ -205,7 +293,7 @@ private fun ThemeSwatch(
 }
 
 @Composable
-private fun CustomThemeRow(state: AppState, accent: Color) {
+private fun CustomAccentRow(state: AppState, accent: Color) {
     val shape = RoundedCornerShape(14.dp)
     val color = Color(state.customAccent)
     Row(
@@ -223,31 +311,39 @@ private fun CustomThemeRow(state: AppState, accent: Color) {
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                if (state.customMode) "自定义颜色 · 已启用" else "自定义颜色",
+                if (state.customMode) "自定义强调色 · 已启用" else "自定义强调色",
                 color = C.Ivory, fontSize = 12.sp, fontWeight = FontWeight.Medium,
             )
             Spacer(Modifier.height(1.dp))
             Text("HSL 滑杆选色；冒号指示块同步显示自定义配色。", color = C.Muted, fontSize = 10.sp)
         }
-        Text(if (state.customMode) "编辑" else "选择", color = if (state.customMode) accent else C.Muted, fontSize = 11.sp)
+        Text(
+            if (state.customMode) "编辑" else "选择",
+            color = if (state.customMode) accent else C.Muted, fontSize = 11.sp,
+        )
     }
 }
 
+// 两个编辑器共用：色块实时预览候选色，松手才提交。
 @Composable
-private fun CustomColorEditor(state: AppState) {
-    val seed = state.customAccent
+private fun HslEditor(
+    seed: Int,
+    title: String,
+    hint: String,
+    previewColor: (Int) -> Color,
+    onCommit: (Int) -> Unit,
+) {
     val hsl = remember(seed) { FloatArray(3).also { ColorUtils.colorToHSL(seed, it) } }
     var hue by remember(seed) { mutableFloatStateOf(hsl[0]) }
     var sat by remember(seed) { mutableFloatStateOf(hsl[1]) }
     var light by remember(seed) { mutableFloatStateOf(hsl[2]) }
-    val preview = Color(
-        ColorUtils.HSLToColor(floatArrayOf(hue.coerceIn(0f, 360f), sat.coerceIn(0f, 1f), light.coerceIn(0f, 1f))),
-    )
-    val commit: () -> Unit = {
-        state.selectCustomAccent(
-            ColorUtils.HSLToColor(floatArrayOf(hue.coerceIn(0f, 360f), sat.coerceIn(0f, 1f), light.coerceIn(0f, 1f))),
+    val candidate = {
+        ColorUtils.HSLToColor(
+            floatArrayOf(hue.coerceIn(0f, 360f), sat.coerceIn(0f, 1f), light.coerceIn(0f, 1f)),
         )
     }
+    val preview = previewColor(candidate())
+    val commit: () -> Unit = { onCommit(candidate()) }
     Row(
         Modifier.fillMaxWidth().padding(top = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -259,9 +355,9 @@ private fun CustomColorEditor(state: AppState) {
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text("自定义颜色", color = C.Ivory, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(title, color = C.Ivory, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(2.dp))
-            Text("松开滑杆后生效；指示块会同步显示自定义配色。", color = C.Muted, fontSize = 10.sp)
+            Text(hint, color = C.Muted, fontSize = 10.sp)
         }
     }
     Spacer(Modifier.height(4.dp))

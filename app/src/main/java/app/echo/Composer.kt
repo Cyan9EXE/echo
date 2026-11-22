@@ -224,12 +224,16 @@ internal fun Composer(state: AppState, accent: Color) {
                             .removePrefix("deepseek-").uppercase(Locale.ROOT),
                         color = C.Muted, fontSize = 9.sp, fontFamily = FontFamily.Monospace,
                     )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "语音 " + Billing.quote(Billing.asrMaxCost()),
-                        color = C.Muted, fontSize = 9.sp, fontFamily = FontFamily.Monospace,
-                    )
-                    Spacer(Modifier.width(2.dp))
+                    if (state.showBillingHints) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "语音 " + Billing.quote(Billing.asrMaxCost()),
+                            color = C.Muted, fontSize = 9.sp, fontFamily = FontFamily.Monospace,
+                        )
+                        Spacer(Modifier.width(2.dp))
+                    } else {
+                        Spacer(Modifier.width(6.dp))
+                    }
                     Box {
                         TapTarget(size = 48.dp, visual = 40.dp, onClick = onMic, description = "语音输入") {
                             Box(

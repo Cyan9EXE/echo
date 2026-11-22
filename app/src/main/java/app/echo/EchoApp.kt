@@ -61,23 +61,37 @@ fun EchoApp(state: AppState) {
     val motionOn = remember { ValueAnimator.areAnimatorsEnabled() }
     val themeAnim = remember { Animatable(C.themeProgress) }
     LaunchedEffect(C.isDay, motionOn) {
+        val target = if (C.isDay) 1f else 0f
+        val delta = kotlin.math.abs(C.Void.luminance() - C.voidLuminanceFor(C.isDay, C.eyeMode))
         themeAnim.animateTo(
-            targetValue = if (C.isDay) 1f else 0f,
-            animationSpec = tween(Motion.dur(280, motionOn), easing = Motion.STANDARD),
+            targetValue = target,
+            animationSpec = tween(
+                Motion.crossfade(260, delta, motionOn),
+                easing = if (delta > 0.35f) Motion.CALM else Motion.STANDARD,
+            ),
         ) { C.themeProgress = C.shapeProgress(value) }
     }
     val eyeAnim = remember { Animatable(C.eyeProgress) }
     LaunchedEffect(C.eyeMode, C.isDay, motionOn) {
+        val eyeTarget = if (C.isDay) C.eyeMode else 0
+        val delta = kotlin.math.abs(C.Void.luminance() - C.voidLuminanceFor(C.isDay, eyeTarget))
         eyeAnim.animateTo(
             targetValue = if (C.isDay && C.eyeMode != 0) 1f else 0f,
-            animationSpec = tween(Motion.dur(320, motionOn), easing = Motion.STANDARD),
+            animationSpec = tween(Motion.crossfade(300, delta, motionOn), easing = Motion.STANDARD),
         ) { C.eyeProgress = value }
     }
     val accentAnim = remember { Animatable(state.skinIndex.toFloat()) }
     LaunchedEffect(state.skinIndex, motionOn) {
+        val last = C.skins.lastIndex
+        val fromIndex = accentAnim.value.toInt()
+        val delta = if (fromIndex in 0..last && state.skinIndex in 0..last) {
+            kotlin.math.abs(
+                C.presetAccent(fromIndex).luminance() - C.presetAccent(state.skinIndex).luminance()
+            )
+        } else 0f
         accentAnim.animateTo(
             targetValue = state.skinIndex.toFloat(),
-            animationSpec = tween(Motion.dur(240, motionOn), easing = Motion.STANDARD),
+            animationSpec = tween(Motion.crossfade(220, delta, motionOn), easing = Motion.STANDARD),
         )
     }
     // 自定义强调色不走预设色阶，直接取用户选的颜色。
@@ -93,7 +107,8 @@ fun EchoApp(state: AppState) {
         if (state.importGuideOff) launchImport() else importGuidePage = 0
     }
     val view = LocalView.current
-    val darkStatusIcons = C.Void.luminance() > 0.18f
+    // 阈值放在中间灰附近：过早翻成深色图标会在深色背景上「消失」。
+    val darkStatusIcons = C.Void.luminance() > 0.42f
     SideEffect {
         val activity = view.context.findActivity() ?: return@SideEffect
         WindowCompat.getInsetsController(activity.window, view).apply {

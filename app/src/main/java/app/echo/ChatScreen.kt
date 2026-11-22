@@ -97,7 +97,7 @@ internal fun ChatScreen(state: AppState, accent: Color) {
             }.conflate().collect {
                 if (!atBottom) return@collect
                 val now = android.os.SystemClock.uptimeMillis()
-                if (now - lastScroll < 90) return@collect
+                if (now - lastScroll < (if (state.performanceMode) 60 else 90)) return@collect
                 lastScroll = now
                 runCatching { listState.scrollToItem(s.messages.size - 1, Int.MAX_VALUE) }
             }
@@ -289,7 +289,7 @@ internal fun ContextBar(state: AppState, accent: Color) {
         if (!state.streaming) return@LaunchedEffect
         while (true) {
             delay(500)
-            state.refreshContextTokens()
+            state.refreshLiveContextTokens()
         }
     }
     val mode = if (s?.contextMode == "summary" && !s.summary.isNullOrBlank()) "摘要" else "原文"

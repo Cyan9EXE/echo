@@ -25,6 +25,12 @@ import androidx.compose.runtime.setValue
 class AppState(private val context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("continue-native", Context.MODE_PRIVATE)
+    /** 性能模式：优先流畅度，而不是省电与内存占用。 */
+    var performanceMode by mutableStateOf(prefs.getBoolean("performanceMode", false))
+        private set
+    /** 是否显示消息底部的费用/token 与朗读估价。关闭后对话更干净。 */
+    var showBillingHints by mutableStateOf(prefs.getBoolean("showBillingHints", true))
+        private set
     private val codeFenceRe = Regex("\u0060\u0060\u0060[\\s\\S]*?\u0060\u0060\u0060")
     private val whitespaceRe = Regex("\\s+")
     private val sentenceEndRe = Regex("(?<=[。！？!?])")
@@ -35,8 +41,12 @@ class AppState(private val context: Context) {
     private val storeDir = File(appContext.filesDir, "store")
     private val msgDir = File(storeDir, "msg")
     private val indexFile = File(storeDir, "index.json")
+    private var ioWorker: Thread? = null
     private val io = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "echo-store").apply { priority = Thread.MIN_PRIORITY }
+        Thread(r, "echo-store").apply {
+            priority = if (performanceMode) Thread.NORM_PRIORITY else Thread.MIN_PRIORITY
+            ioWorker = this
+        }
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -45,6 +55,9 @@ class AppState(private val context: Context) {
     private var lastRevisionAt = 0L
     var contextTokens by mutableStateOf(0)
         private set
+    // 流式回复期间缓存「历史字符数」，让 500ms 上下文轮询走 O(1) 增量而不是整段求和。
+    private var contextBaseChars = -1
+    private var contextBaseId: String? = null
 
     // Plain-text prefs are gone: the key is sealed with an AES-256-GCM key that
     // lives in the Android Keystore (see KeyVault). load() also rewrites a legacy
@@ -68,6 +81,11 @@ class AppState(private val context: Context) {
     )
         private set
     var customAccent by mutableStateOf(prefs.getInt("customAccent", 0xFF7FA8FF.toInt()))
+        private set
+    /** 日间第五种外观：底色由用户自选，存成 ARGB（只换色度，明度仍跟随纸白）。 */
+    var customThemeArgb by mutableStateOf(prefs.getInt("customTheme", 0xFFF3E9D8.toInt()))
+        private set
+    var customThemeOn by mutableStateOf(prefs.getBoolean("customThemeOn", false))
         private set
     // 0 = off, 1 = warm paper, 2 = soft green. Only rendered in day mode.
     var eyeMode by mutableStateOf(prefs.getInt("eyeMode", 0).coerceIn(0, 2))
@@ -132,6 +150,7 @@ class AppState(private val context: Context) {
         prefs.edit().remove("blueAccent").apply()
         C.initDay(prefs.getBoolean("dayMode", false))
         C.initEye(prefs.getInt("eyeMode", 0))
+        C.initCustomTheme(customThemeArgb, customThemeOn)
         if (prefs.contains("officialToken") || prefs.contains("officialName") || prefs.contains("officialPhone") || prefs.contains("officialDeviceId") || prefs.contains("mode")) {
             prefs.edit()
                 .remove("officialToken").remove("officialName").remove("officialPhone")
@@ -148,10 +167,12 @@ class AppState(private val context: Context) {
                 evictLoaded()
             }
             override fun onTrimMemory(level: Int) {
-                if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
-                    flushPending()
-                    evictLoaded()
-                } else if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+                if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) flushPending()
+                // 性能模式把会话留在内存里（后台回来仍然热），正常模式尽早让出内存。
+                if (performanceMode) return
+                if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN ||
+                    level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
+                ) {
                     evictLoaded()
                 }
             }
@@ -183,16 +204,93 @@ class AppState(private val context: Context) {
         prefs.edit().putBoolean("thinking", value).apply()
     }
 
+    fun updatePerformanceMode(value: Boolean) {
+        performanceMode = value
+        ioWorker?.priority = if (value) Thread.NORM_PRIORITY else Thread.MIN_PRIORITY
+        prefs.edit().putBoolean("performanceMode", value).apply()
+    }
+
+    fun updateShowBillingHints(value: Boolean) {
+        showBillingHints = value
+        prefs.edit().putBoolean("showBillingHints", value).apply()
+    }
+
     fun updateSystemPrompt(value: String) {
         systemPrompt = value.take(2000)
         prefs.edit().putString("systemPrompt", systemPrompt).apply()
     }
 
+    /** 自定义强调色已启用：skinIndex 指向 5 个预设之后的第六格。 */
     val customMode: Boolean get() = skinIndex > C.skins.lastIndex
+
+    /** 自定义底色已启用且处于日间。 */
+    val customAppearance: Boolean get() = customThemeOn && C.isDay
 
     fun updateSkin(index: Int) {
         skinIndex = index.coerceIn(0, C.skins.size)
         prefs.edit().putInt("skinIndex", skinIndex).apply()
+    }
+
+    /** 只切外观，强调色保持不变。 */
+    fun applyAppearance(look: C.Look) {
+        if (look == C.Look.INK) {
+            if (C.isDay) C.applyDay(false)
+        } else if (!C.isDay) {
+            C.applyDay(true)
+        }
+        val eye = when (look) {
+            C.Look.WARM -> 1
+            C.Look.GREEN -> 2
+            else -> 0
+        }
+        if (eyeMode != eye) {
+            eyeMode = eye
+            C.applyEye(eye)
+        }
+        val custom = look == C.Look.CUSTOM
+        if (customThemeOn != custom) {
+            customThemeOn = custom
+            C.applyCustomTheme(if (custom) customThemeArgb else null)
+        }
+        prefs.edit()
+            .putBoolean("dayMode", C.isDay)
+            .putInt("eyeMode", eyeMode)
+            .putBoolean("customThemeOn", customThemeOn)
+            .apply()
+    }
+
+    /** 只切强调色，外观保持不变。 */
+    fun applyAccent(index: Int) = updateSkin(index)
+
+    /** 一次落定「外观 × 强调色」组合。 */
+    fun applyPreset(preset: Preset) {
+        applyAppearance(preset.appearance)
+        updateSkin(preset.accent)
+    }
+
+    /** 日间自定义底色：传入 HSL 选出的 ARGB，立即生效并持久化。 */
+    fun applyCustomTheme(argb: Int) {
+        customThemeArgb = argb
+        customThemeOn = true
+        if (!C.isDay) C.applyDay(true)
+        if (eyeMode != 0) {
+            eyeMode = 0
+            C.applyEye(0)
+        }
+        C.applyCustomTheme(argb)
+        prefs.edit()
+            .putInt("customTheme", argb)
+            .putBoolean("customThemeOn", true)
+            .putBoolean("dayMode", true)
+            .putInt("eyeMode", 0)
+            .apply()
+    }
+
+    /** 关掉自定义底色，回到预设外观。 */
+    fun disableCustomTheme() {
+        customThemeOn = false
+        C.applyCustomTheme(null)
+        prefs.edit().putBoolean("customThemeOn", false).apply()
     }
 
     /** Enters the custom-colour slot and stores the picked colour. */
@@ -340,9 +438,9 @@ class AppState(private val context: Context) {
         val effectiveModel = if (webSearch) "deepseek-flash" else model
         val reply = Msg(role = "assistant", text = "", model = effectiveModel)
         session.messages.add(reply)
-        refreshContextTokens()
         session.updatedAt = System.currentTimeMillis()
         streaming = true
+        refreshContextTokens()
         notice = null
         markDirty(session.id)
         scheduleSave()
@@ -358,7 +456,7 @@ class AppState(private val context: Context) {
         var lastPublish = 0L
         fun publish(force: Boolean) {
             val now = SystemClock.uptimeMillis()
-            if (!force && now - lastPublish < 120) return
+            if (!force && now - lastPublish < (if (performanceMode) 70 else 120)) return
             lastPublish = now
             reply.text = textBuf.toString()
             reply.thinking = thinkingBuf.toString()
@@ -372,6 +470,7 @@ class AppState(private val context: Context) {
             webSearch = webSearch,
             systemPrompt = if (includeSystem) systemPrompt.trim() else null,
             messages = history,
+            flushMs = if (performanceMode) 45 else 60,
             onText = { chunk ->
                 if (mySeq == streamSeq) {
                     textBuf.append(chunk)
@@ -398,10 +497,12 @@ class AppState(private val context: Context) {
             },
             onUsage = { u ->
                 if (mySeq == streamSeq) {
-                    reply.inputTokens = u.inputTokens + u.cacheReadTokens + u.cacheCreateTokens
-                    reply.outputTokens = u.outputTokens
-                    reply.cacheReadTokens = u.cacheReadTokens
-                    reply.cacheCreateTokens = u.cacheCreateTokens
+                    // 合并而不是覆盖：message_start 给输入侧、message_delta 只给输出侧。
+                    val input = u.inputTokens + u.cacheReadTokens + u.cacheCreateTokens
+                    if (input > 0) reply.inputTokens = maxOf(reply.inputTokens, input)
+                    if (u.outputTokens > 0) reply.outputTokens = maxOf(reply.outputTokens, u.outputTokens)
+                    if (u.cacheReadTokens > 0) reply.cacheReadTokens = u.cacheReadTokens
+                    if (u.cacheCreateTokens > 0) reply.cacheCreateTokens = u.cacheCreateTokens
                 }
             },
             onError = { message ->
@@ -661,20 +762,46 @@ class AppState(private val context: Context) {
         return SummaryPlan(sb.toString().trim(), covered, blocks)
     }
 
+    private fun contextChars(s: Session): Int = if (s.contextMode == "summary" && s.summary.isNotBlank()) {
+        s.summary.length + historyMessages(s).drop(s.summaryCovered).sumOf { it.text.length }
+    } else if (s.messages.ready) {
+        s.messages.sumOf { it.text.length }
+    } else {
+        s.charCount.toInt()
+    }
+
     fun refreshContextTokens() {
         val s = current
         if (s == null) {
             contextTokens = 0
+            contextBaseChars = -1
+            contextBaseId = null
             return
         }
-        val chars = if (s.contextMode == "summary" && s.summary.isNotBlank()) {
-            s.summary.length + historyMessages(s).drop(s.summaryCovered).sumOf { it.text.length }
-        } else if (s.messages.ready) {
-            s.messages.sumOf { it.text.length }
-        } else {
-            s.charCount.toInt()
-        }
+        val chars = contextChars(s)
         contextTokens = (chars / 2.5).toInt() + 12
+        if (streaming) {
+            contextBaseChars = chars
+            contextBaseId = s.id
+        } else {
+            contextBaseChars = -1
+            contextBaseId = null
+        }
+    }
+
+    /**
+     * 流式期间上下文条每 500ms 刷新一次。历史部分在发送时已经算过，这里只叠加
+     * 当前回复的长度，避免每半秒重新遍历整段会话（几百条消息时也会产生垃圾）。
+     */
+    fun refreshLiveContextTokens() {
+        val s = current ?: return
+        val base = if (s.id == contextBaseId) contextBaseChars else -1
+        if (base < 0) {
+            refreshContextTokens()
+            return
+        }
+        val live = s.messages.lastOrNull()?.text?.length ?: 0
+        contextTokens = ((base + live) / 2.5).toInt() + 12
     }
 
     fun isPeakNow(): Boolean {
@@ -717,7 +844,7 @@ class AppState(private val context: Context) {
 
     private fun scheduleSave() {
         main.removeCallbacks(saveRunnable)
-        main.postDelayed(saveRunnable, 700)
+        main.postDelayed(saveRunnable, if (performanceMode) 260L else 700L)
     }
 
     private fun flushPending() {
@@ -998,7 +1125,7 @@ class AppState(private val context: Context) {
     }
 
     private val readyOrder = ArrayDeque<String>()
-    private val maxReady = 6
+    private val maxReady: Int get() = if (performanceMode) 12 else 6
 
     private fun touchReady(s: Session) {
         readyOrder.remove(s.id)
