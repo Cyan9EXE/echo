@@ -104,6 +104,6 @@ class BaselineProfileGenerator {
     }
 
     private companion object {
-        const val PACKAGE_NAME = "app.xuxie"
+        const val PACKAGE_NAME = "app.echo"
     }
 }

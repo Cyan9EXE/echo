@@ -1,8 +1,17 @@
-# Echo
+# Echo（回声）
 
-原生 Android 客户端（Kotlin + Jetpack Compose）。把 DeepSeek 导出的历史会话 ZIP 导入本机，逐会话复活已超过 7 天未活跃的对话；对话直接走用户自己的 API Key（BYOK），不经过任何中转服务器。
+一个原生 Android 客户端（Kotlin + Jetpack Compose）：把 DeepSeek 官方导出的历史会话 ZIP 导入本机，逐会话复活已超过 7 天未活跃的对话；对话直接走用户自己的 API Key（BYOK），不经过任何中转服务器。
 
-> 由 **DeepSeek-V4.1Flash** 构建。第三方客户端，与 DeepSeek 官方无隶属关系；名称与商标归其所有者。
+> **版本 1.0.0（MIT 版）** · 由 **DeepSeek-V4.1Flash** 构建
+> 第三方客户端，与 DeepSeek 官方无隶属关系；DeepSeek 名称与商标归其所有者。
+
+## 免责声明与品牌边界
+
+- **品牌资产不随代码授权**：Echo / 回声 的名称、图标与视觉识别保留所有权利，不在 MIT 范围内；未经书面许可，不得用它们标识或推广修改版、再分发包。
+- **AI 辅助声明**：部分代码由 AI 辅助生成，按 **原样（AS IS）** 提供，不附带任何明示或暗示担保；使用风险自负。
+- **免费与非商业**：本应用免费提供、不商业运营；代码以 MIT 许可发布，允许包括商业使用在内的任何用途，但须保留版权与许可声明。
+- **维护边界**：不做云同步、账号系统、后端服务、广告、内购；不接入非公开接口；以“主题打磨”为主、不影响正确性与可用性的改动不在维护范围。
+- 详见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
 
 ## 功能
 
@@ -12,14 +21,14 @@
 - **上下文透明**：显示当前 token / 1M、占比、原文或摘要模式，以及每轮与累计估算费用。
 - **流式对话**：思考过程折叠；支持暂停、重试、复制、朗读。
 - **官方语音**：TTS 朗读（¥3 / 万计费字符）与语音识别（¥0.78 / 小时），调用前弹计费确认，可勾选不再提示；本机用量账本。
-- **联网搜索**：官方 deepseek_web_search 工具，回答附带来源链接。
-- **外观**：日间 / 夜间 / 跟随系统，金 · 蓝 · 青 · 陶四种强调色，字号可调，切换有过渡动画。
+- **联网搜索**：调用官方 deepseek_web_search 工具，回答附带来源链接。
+- **外观**：日间 / 夜间 / 暖黄 / 淡绿四种外观 × 金 · 蓝 · 青 · 陶 · 白五种强调色（共 20 个预设，可交叉组合）；支持自定义 HSL 强调色；字号可调；切换有过渡动画。
 - **隐私**：API Key 默认隐藏，连续点 3 次「显示」才展示，展示期间禁止截屏；Key 用 Android Keystore（AES-256-GCM）加密后才落盘，磁盘上没有明文；Key、会话与附件只存在本机。
 - **自适应**：720–3840 像素宽度的屏幕均可正常使用，关键操作热区不小于 48dp。
 
 ## 技术
 
-纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。22 个 Kotlin 文件、约 6.3k 行：
+纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。23 个 Kotlin 文件、约 8,000 行：
 
     app/src/main/java/app/echo/
       MainActivity / EchoApp     入口与导航
@@ -31,10 +40,11 @@
       Billing / Speech           计费、TTS、ASR、用量账本
       Design / Theme / Glyphs / Format / Motion
 
-- namespace = app.echo；applicationId = app.xuxie 为兼容老用户本地数据而保留。
+- namespace = applicationId = app.echo；旧包名 app.xuxie 已废弃，不得再使用。
 - minSdk 26 / targetSdk 35。
+- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 1 / 1.0.0）。
 - 性能：对话页只在贴底时跟随流式输出；会话列表的分区 / 搜索 / 排序结果按状态缓存；索引写入与消息解析全部下沉 IO 线程。
-- AOT：release 使用官方 `androidx.baselineprofile` 插件生成 Baseline Profile，并依赖 `androidx.profileinstaller:1.4.1`（1.3.x 在 Android 15 / SDK 35 上会静默拒绝写入，已升级）。
+- AOT（profile 引导）：release 内置官方 androidx.baselineprofile 插件生成的 **Baseline Profile**，并依赖 androidx.profileinstaller:1.4.1。Baseline Profile 只是“热点方法清单”，随同一个 APK 分发到所有设备；真正的机器码由每台设备安装/空闲时由 ART 的 dex2oat 以 speed-profile 本地生成，**不随安装包分发机器码**。
 
 ## 构建
 
@@ -45,12 +55,21 @@
 
 产物：app/build/outputs/apk/release/app-release.apk。默认 API：https://api.deepseek.com；如需指向本地 mock，可加 -PapiOrigin=http://10.0.2.2:8099。
 
-Baseline Profile 的生成文件默认不提交（app/src/release/generated/ 已忽略）。需要 AOT 版时，先连一台 API 28+ 设备/模拟器生成，再构建 release：
+**正式签名**：release keystore 与口令**不入库**。在 GRADLE_USER_HOME/gradle.properties（例如 ~/.gradle/gradle.properties）配置：
+
+    echo.release.storeFile=/absolute/path/echo-release.jks
+    echo.release.storePassword=***
+    echo.release.keyAlias=echo
+    echo.release.keyPassword=***
+
+没有这些配置时自动回退 debug 签名，仅适合本地内测。证书 SHA-256 指纹记录在 REVIEW.md。
+
+**Baseline Profile** 的生成文件默认不提交（app/src/release/generated/ 已忽略）。需要重新生成时，先连一台 API 28+ 设备/模拟器，再构建 release：
 
     gradle :app:generateBaselineProfile -x lintVitalAnalyzeRelease -x lintVitalRelease
     gradle :app:assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
 
-profile 由 `baselineprofile` 宏基准模块采集，覆盖启动、滚动、设置、会话搜索等主要路径。
+profile 由 baselineprofile 宏基准模块采集，覆盖启动、滚动、设置、会话搜索等主要路径。
 
 ## 隐私与费用
 
@@ -62,8 +81,15 @@ profile 由 `baselineprofile` 宏基准模块采集，覆盖启动、滚动、�
 
 - Markdown / LaTeX 尚未渲染，公式按纯文本显示。
 - 导入只保留当前分支；附件与图片不会重传。
-- 尚未提供「导出全部历史」与正式签名仓库（当前 release 使用 debug 签名，仅适合内测）。
-- 联网搜索与真实 API 全链路仍在用真实 Key 验证中。
+- 尚未提供「导出全部历史」（单会话 Markdown / 全会话 ZIP 在路线图中）。
+- 联网搜索的真实 Key 全链路回归仍在进行中。
+- 单元测试与 CI 尚未建立；协议兼容层基线文档待补。
+
+## 许可
+
+- 代码：MIT（见 LICENSE）。
+- 第三方依赖归属：NOTICE（Compose / Kotlin / AndroidX 等，Apache-2.0）。
+- 名称、图标与视觉资产：保留所有权利，不随 MIT 授权。
 
 ## 数据
 

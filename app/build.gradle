@@ -6,6 +6,9 @@ plugins {
 }
 
 def apiOrigin = project.findProperty('apiOrigin') ?: 'https://api.deepseek.com'
+// Single source of truth for the app version: edit gradle.properties only.
+def echoVersionCode = (project.findProperty('echo.versionCode') ?: '1').toInteger()
+def echoVersionName = project.findProperty('echo.versionName') ?: '1.0.0'
 // Plain HTTP is only allowed when a debug build explicitly points at a local mock
 // server (apiOrigin=http://...). Shipped builds stay TLS-only.
 def usesCleartext = apiOrigin.startsWith('http:') ? 'true' : 'false'
@@ -15,13 +18,28 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'app.xuxie'
+        // Public identity of Echo. app.xuxie is retired and must not be reused.
+        applicationId 'app.echo'
         minSdk 26
         targetSdk 35
-        versionCode 13
-        versionName '0.9.2'
+        versionCode echoVersionCode
+        versionName echoVersionName
         buildConfigField 'String', 'API_ORIGIN', "\"" + apiOrigin + "\""
         manifestPlaceholders = [usesCleartext: usesCleartext]
+    }
+
+    // Release signing is configured from GRADLE_USER_HOME (outside the repo).
+    // Contributors without those keys fall back to the debug key below.
+    def relStore = project.findProperty('echo.release.storeFile')
+    signingConfigs {
+        if (relStore) {
+            release {
+                storeFile file(relStore)
+                storePassword project.findProperty('echo.release.storePassword')
+                keyAlias project.findProperty('echo.release.keyAlias') ?: 'echo'
+                keyPassword project.findProperty('echo.release.keyPassword')
+            }
+        }
     }
 
     buildFeatures { compose true; buildConfig true }
@@ -39,9 +57,8 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Reuse the debug key so adb install -r upgrades the running debug
-            // install in place (same signature, no data wipe).
-            signingConfig signingConfigs.debug
+            // Real release key when available; debug key otherwise (local dev only).
+            signingConfig relStore ? signingConfigs.release : signingConfigs.debug
         }
         debug {
             // No minify: keeps token names so the perf work stays debuggable.

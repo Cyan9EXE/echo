@@ -1,7 +1,7 @@
 # Echo 评审说明（REVIEW）
 
 > 面向评审者的一页纸：项目定位、关键决策、本轮改动、验证方式、已知问题。
-> 代码仓库：app-native/（Android，Kotlin + Jetpack Compose）。撰写时版本 0.9.2（versionCode 13）。
+> 代码仓库：app-native/（Android，Kotlin + Jetpack Compose）。撰写时版本 **1.0.0（versionCode 1，applicationId app.echo）**；本文中 0.9.x 的记录为历史版本证据。
 
 ## 1. 这个项目是什么
 
@@ -85,7 +85,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 - Markdown / LaTeX 未渲染，公式按纯文本显示（下一步接入轻量 Markdown）。
 - 导入只保留当前分支；附件与图片不会重传；不提供「导出全部历史」。
-- release 使用 debug 签名，仅适合内测；上架需正式签名与隐私政策。
+- ~~release 使用 debug 签名~~ → 1.0.0 起使用正式 release keystore（证书指纹见第 8 节）；无密钥时仍回退 debug，仅限本地内测。
 - 联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路；UI 与请求结构已就绪（`web_search` 工具 + 引用渲染）。
 - 性能数据以真机（LQAVP23928C105TX，90Hz 档）为准；模拟器是软件渲染，其 gfxinfo jank 比例不作指标。
 
@@ -105,3 +105,33 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 ---
 *由 DeepSeek-V4.1Flash 构建；第三方客户端，与 DeepSeek 官方无隶属关系。*
+
+## 8. 1.0.0（MIT 版）发布基线（2026-11-23）
+
+**身份与版本**
+
+- applicationId / namespace：**app.echo**；旧包名 app.xuxie 已废弃，禁止再使用（与旧版数据不互通，属已确认的破坏性变更）。
+- versionCode = 1，versionName = 1.0.0；两者只在 gradle.properties（echo.versionCode / echo.versionName）维护，app/build.gradle 只读取。
+- minSdk 26 / targetSdk 35 / compileSdk 35。
+
+**签名**
+
+- Release keystore：D:/desktop/deepseek/keys/echo-release.jks（PKCS12，RSA 4096，别名 echo，有效期 10000 天）；**不入库**。
+- 口令与路径存放在 GRADLE_USER_HOME/gradle.properties 的 echo.release.* 中；无配置时自动回退 debug 签名。
+- 证书 SHA-256：5E:DA:7A:67:36:BD:0C:75:7A:8D:B4:A1:89:DD:28:04:8F:4B:8B:DC:64:E8:64:DC:1D:30:A8:75:CB:99:78:CA
+- SHA-1：34:D7:42:34:BE:83:28:74:AF:DA:B4:9D:29:5A:C7:90:AE:8A:4B:70
+- **备份要求**：keystore 与口令至少备份三处异地；丢失将无法再发布同签名更新。
+
+**构建产物（本轮）**
+
+- app/build/outputs/apk/release/app-release.apk，1,389,853 B。
+- SHA-256：cf47437dac2f7f3cadf4c56d093f43fcff2097aebd255fb229f58c931cdcc0ca
+- 安装验证：emulator-5554（1080x2340）全新安装 app.echo 1.0.0 成功，冷启进入欢迎页（空数据），dumpsys 显示 versionCode=1 / versionName=1.0.0。
+
+**许可与文档**
+
+- 新增 LICENSE（MIT，2026 Echo contributors）与 NOTICE（Compose/Kotlin/AndroidX/Apache-2.0 归属；Echo 名称/图标/视觉资产保留所有权利）。
+- README 重写：品牌边界、AI 辅助 AS IS、免费非商业但 MIT 允许任何用途、维护边界（不做云同步/账号/后端/广告/内购/非公开接口）、AOT 表述改为“profile 引导、机器码设备本地生成”。
+- 已知限制同步更新：Markdown/LaTeX、导出、联网搜索真实 Key 全链路、单测/CI、兼容层文档仍在路线图中。
+
+**说明**：本文第 3–5 节的性能与交互验证数据来自 0.9.2（app.xuxie）；1.0.0 仅变更身份与签名，代码行为未变，因此这些数据继续有效。

@@ -1,9 +1,23 @@
 package app.echo
 
 import android.content.ClipData
+import kotlinx.coroutines.delay
+import kotlin.math.abs
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
@@ -93,7 +107,22 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
         readingThis -> "暂停朗读"
         else -> "朗读"
     }
-    Column(Modifier.fillMaxWidth()) {
+    // 新气泡淡入 + 轻微上移：流式回复刚开始时整段出现，硬切会显得突兀。
+    val enter = remember { Animatable(if (live) 0f else 1f) }
+    LaunchedEffect(m.id, live) {
+        if (live) {
+            enter.snapTo(0f)
+            enter.animateTo(1f, tween(180))
+        } else {
+            enter.snapTo(1f)
+        }
+    }
+    Column(
+        Modifier.fillMaxWidth().graphicsLayer {
+            alpha = enter.value
+            translationY = (1f - enter.value) * 6.dp.toPx()
+        },
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("DeepSeek", color = C.Muted, fontSize = 11.sp)
             if (m.model.isNotBlank()) {
@@ -107,7 +136,7 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
         }
         Spacer(Modifier.height(7.dp))
         ThinkingBlock(m, accent, live)
-        if (m.text.isNotBlank() || m.thinking.isBlank()) AnswerText(m)
+        if (m.text.isNotBlank() || m.thinking.isBlank()) AnswerText(m, live = live, accent = accent)
         if (m.citations.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             CitationsBlock(m.citations, accent)
@@ -285,18 +314,75 @@ private fun answerChunks(text: String): List<String> {
     return out
 }
 
+// 流式光标：竖条颜色跟随主题强调色，按官方节奏慢闪（约 1s 亮 / 0.5s 暗）。
 @Composable
-internal fun AnswerText(m: Msg) {
+private fun cursorAlpha(): Float {
+    val alpha = remember { Animatable(1f) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            alpha.animateTo(.12f, tween(110))
+            delay(500)
+            alpha.animateTo(1f, tween(110))
+        }
+    }
+    return alpha.value
+}
+
+private fun caretText(text: String, alpha: Float, color: Color): AnnotatedString = buildAnnotatedString {
+    append(text)
+    withStyle(SpanStyle(color = color.copy(alpha = alpha))) { append("▍") }
+}
+
+// 首 token 到达前的三点呼吸，替代原来静止的「…」。
+@Composable
+private fun TypingDots(color: Color) {
+    val phase = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            phase.snapTo(0f)
+            phase.animateTo(1f, tween(900, easing = LinearEasing))
+        }
+    }
+    Row(Modifier.height(26.dp), verticalAlignment = Alignment.CenterVertically) {
+        repeat(3) { i ->
+            val t = (phase.value + i * .18f) % 1f
+            val tri = 1f - abs(t - .5f) * 2f
+            Box(
+                Modifier
+                    .padding(horizontal = 2.dp)
+                    .size(5.dp)
+                    .background(color.copy(alpha = .22f + .6f * tri), CircleShape),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun AnswerText(m: Msg, live: Boolean = false, accent: Color = C.Blue) {
     val text = m.text
     val thinking = m.thinking
-    val shown = text.ifBlank { if (thinking.isNotBlank()) "（思考中）" else "…" }
-    if (text.length < 700) {
-        Text(shown, color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp)
+    if (text.isBlank()) {
+        if (live) {
+            TypingDots(accent)
+            return
+        }
+        Text(if (thinking.isNotBlank()) "（思考中）" else "…", color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp)
         return
     }
+    val caret = if (live) cursorAlpha() else 0f
+    if (text.length < 700) {
+        Text(if (live) caretText(text, caret, accent) else AnnotatedString(text), color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp)
+        return
+    }
+    val chunks = answerChunks(text)
     Column {
-        for (chunk in answerChunks(shown)) {
-            Text(chunk, color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp)
+        chunks.forEachIndexed { index, chunk ->
+            val tail = live && index == chunks.lastIndex
+            Text(
+                if (tail) caretText(chunk, caret, accent) else AnnotatedString(chunk),
+                color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp,
+            )
         }
     }
 }
