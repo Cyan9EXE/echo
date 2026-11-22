@@ -1,0 +1,57 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+def apiOrigin = project.findProperty('apiOrigin') ?: 'https://api.deepseek.com'
+
+android {
+    namespace 'app.echo'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'app.xuxie'
+        minSdk 26
+        targetSdk 35
+        versionCode 11
+        versionName '0.9.0'
+        buildConfigField 'String', 'API_ORIGIN', "\"" + apiOrigin + "\""
+    }
+
+    buildFeatures { compose true; buildConfig true }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+
+    buildTypes {
+        release {
+            // Aggressive code + resource shrinking; full mode lets R8 remove more
+            // unreachable Compose/material3 entry points than compat mode.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Reuse the debug key so adb install -r upgrades the running debug
+            // install in place (same signature, no data wipe).
+            signingConfig signingConfigs.debug
+        }
+        debug {
+            // No minify: keeps token names so the perf work stays debuggable.
+        }
+    }
+
+}
+
+dependencies {
+    implementation platform('androidx.compose:compose-bom:2024.09.00')
+    implementation 'androidx.activity:activity-compose:1.9.2'
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.profileinstaller:profileinstaller:1.3.1'
+}

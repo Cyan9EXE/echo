@@ -1,0 +1,22 @@
+# Gradle / Android
+.gradle/
+.kotlin/
+build/
+app/build/
+local.properties
+*.apk
+*.aab
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# local scratch and private data
+_*
+*.log
+sessions*.json
+device-*.json
+sample-*.zip
+PERF.md
+.shot.sh
