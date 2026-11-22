@@ -27,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -135,13 +136,13 @@ internal fun SearchModeTab(label: String, selected: Boolean, accent: Color, onCl
     Pressable(
         onClick = onClick,
         modifier = Modifier
-            .heightIn(min = 34.dp)
-            .border(1.dp, if (selected) accent.copy(alpha = .55f) else C.Hair, RoundedCornerShape(17.dp)),
-        shape = RoundedCornerShape(17.dp),
+            .heightIn(min = 48.dp)
+            .border(1.dp, if (selected) accent.copy(alpha = .55f) else C.Hair, RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
         scale = .95f,
         description = label,
     ) {
-        Box(Modifier.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
             Text(label, color = if (selected) accent else C.Muted, fontSize = 11.sp)
         }
     }
@@ -197,61 +198,116 @@ internal fun DrawerSessionRow(
     now: Long,
     hitLabel: String = "",
 ) {
-    Pressable(
-        onClick = { state.open(session) },
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        scale = .98f,
-        description = session.title.ifBlank { "新对话" },
+    // Title area and the trailing action are siblings: the × used to be nested inside
+    // the row's Pressable, which made the two click targets share one pointer chain.
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, end = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, end = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Pressable(
+            onClick = { state.open(session) },
+            modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+            shape = RoundedCornerShape(10.dp),
+            scale = .98f,
+            description = session.title.ifBlank { "新对话" },
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    session.title.ifBlank { "新对话" },
-                    color = if (session.id == state.currentId) accent else C.Ivory,
-                    fontSize = 15.sp, maxLines = 1,
-                )
-                Text(
-                    (if (session.pinned) "置顶 · " else "") +
-                        session.messages.userTurns.toString() + " 轮 · " + fmtTime(session.updatedAt) + " · " +
-                        when {
-                            expiredMode && session.expired -> "已失效"
-                            expiredMode -> "还有时间"
-                            session.expired && session.revived -> "已恢复"
-                            session.expired -> "已失效"
-                            session.imported -> "本地"
-                            else -> "可用"
-                        },
-                    color = C.Muted, fontSize = 11.sp,
-                )
-                if (hitLabel.isNotBlank()) {
-                    Text(hitLabel, color = C.Muted.copy(alpha = .82f), fontSize = 10.sp)
-                }
-            }
-            if (expiredMode) {
-                if (session.expired) {
-                    Text("复活", color = accent, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp))
-                } else {
-                    Text(fmtRemaining(session.updatedAt, now), color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
-                }
-            } else {
-                Pressable(
-                    onClick = { state.delete(session) },
-                    modifier = Modifier.size(32.dp),
-                    shape = CircleShape,
-                    scale = .9f,
-                    description = "删除会话",
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CloseGlyph(Modifier.size(11.dp), C.Muted)
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                Column(Modifier.fillMaxWidth()) {
+                    Text(
+                        session.title.ifBlank { "新对话" },
+                        color = if (session.id == state.currentId) accent else C.Ivory,
+                        fontSize = 15.sp, maxLines = 1,
+                    )
+                    Text(
+                        (if (session.pinned) "置顶 · " else "") +
+                            session.messages.userTurns.toString() + " 轮 · " + fmtTime(session.updatedAt) + " · " +
+                            when {
+                                expiredMode && session.expired -> "已失效"
+                                expiredMode -> "还有时间"
+                                session.expired && session.revived -> "已恢复"
+                                session.expired -> "已失效"
+                                session.imported -> "本地"
+                                else -> "可用"
+                            },
+                        color = C.Muted, fontSize = 11.sp,
+                    )
+                    if (hitLabel.isNotBlank()) {
+                        Text(hitLabel, color = C.Muted.copy(alpha = .82f), fontSize = 10.sp)
                     }
                 }
             }
         }
+        if (expiredMode) {
+            if (session.expired) {
+                Text("复活", color = accent, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp))
+            } else {
+                Text(fmtRemaining(session.updatedAt, now), color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
+            }
+        } else {
+            Pressable(
+                onClick = { state.delete(session) },
+                modifier = Modifier.size(32.dp),
+                shape = CircleShape,
+                scale = .9f,
+                description = "删除会话",
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CloseGlyph(Modifier.size(11.dp), C.Muted)
+                }
+            }
+        }
     }
+}
+// Pure partition/filter/sort pass over the session list, cached in the composition
+// through derivedStateOf. Reading the SnapshotStateList in here is what lets delete,
+// import and pin refresh the drawer immediately (no manual revision bump needed).
+private fun computeDrawerView(
+    state: AppState,
+    query: String,
+    associative: Boolean,
+    expiredOnly: Boolean,
+    reviveSort: Int,
+    contentSortByRatio: Boolean,
+    contentHits: Map<String, ContentHit>,
+): DrawerView {
+    val dormant = state.sessions.filter { it.expired && !it.revived }
+    val warm = state.sessions.filter { !it.expired && !it.revived }
+    val activePool = state.sessions.filter { !it.expired || it.revived }
+    val pool = if (expiredOnly) dormant + warm else activePool
+    val filtered = searchSessions(pool, query, associative)
+    val reviveCmp: Comparator<Session> = when (reviveSort) {
+        1 -> compareByDescending<Session> { it.messages.roleSeq.length }.thenByDescending { it.updatedAt }
+        2 -> compareByDescending<Session> { it.charCount }
+            .thenByDescending { it.messages.roleSeq.length }
+            .thenByDescending { it.updatedAt }
+        else -> compareByDescending { it.updatedAt }
+    }
+    val contentRows = if (query.isBlank()) emptyList() else contentHits.entries.mapNotNull { entry ->
+        pool.firstOrNull { it.id == entry.key }?.let { it to entry.value }
+    }.sortedWith(
+        if (contentSortByRatio) {
+            compareByDescending<Pair<Session, ContentHit>> { it.second.ratio }
+                .thenByDescending { it.second.matched }
+                .thenByDescending { it.first.pinned }
+                .thenByDescending { it.first.updatedAt }
+        } else {
+            compareByDescending<Pair<Session, ContentHit>> { it.second.matched }
+                .thenByDescending { it.second.ratio }
+                .thenByDescending { it.first.pinned }
+                .thenByDescending { it.first.updatedAt }
+        }
+    )
+    return DrawerView(
+        dormant = dormant,
+        warm = warm,
+        pool = pool,
+        filtered = filtered,
+        longDormant = dormant.filter { it.messages.roleSeq.length >= 20 }.sortedWith(reviveCmp),
+        shortDormant = dormant.filter { it.messages.roleSeq.length < 20 }.sortedWith(reviveCmp),
+        warmSorted = warm.sortedWith(reviveCmp),
+        titleHits = if (query.isBlank()) emptyList() else filtered,
+        contentRows = contentRows,
+    )
 }
 
 @Composable
@@ -274,9 +330,14 @@ internal fun DrawerPanel(
     val panelW = (LocalConfiguration.current.screenWidthDp * .82f).coerceIn(320f, 420f)
     // The drawer recomposes on every keystroke while searching; these counts used
     // to walk all ~3,800 sessions twice per pass just to build the placeholder.
-    val shownCount = remember(state.revision, expiredOnly) {
-        if (expiredOnly) state.sessions.count { it.expired && !it.revived }
-        else state.sessions.count { !it.expired || it.revived }
+    // They follow the SnapshotStateList itself: delete/import mutate the list without
+    // bumping revision, and the old revision-keyed remember kept a stale count.
+    val shownCount by remember {
+        derivedStateOf {
+            state.revision // pin/revive/rename bump revision without touching the list
+            if (expiredOnly) state.sessions.count { it.expired && !it.revived }
+            else state.sessions.count { !it.expired || it.revived }
+        }
     }
     Surface(color = C.Panel, modifier = Modifier.fillMaxHeight().width(panelW.dp)) {
         Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 18.dp)) {
@@ -346,51 +407,24 @@ internal fun DrawerPanel(
             }
             Spacer(Modifier.height(14.dp))
             val now = System.currentTimeMillis()
-            // Partition/filter/sort ~3,800 sessions. This ran on every recomposition
-            // (each keystroke, each contentHits update); cache it on the inputs that
-            // actually change the result.
-            val view = remember(
-                state.revision, state.sessions, query, associative, expiredOnly,
-                reviveSort, contentSortByRatio, contentHits,
-            ) {
-                val dormant = state.sessions.filter { it.expired && !it.revived }
-                val warm = state.sessions.filter { !it.expired && !it.revived }
-                val activePool = state.sessions.filter { !it.expired || it.revived }
-                val pool = if (expiredOnly) dormant + warm else activePool
-                val filtered = searchSessions(pool, query, associative)
-                val reviveCmp: Comparator<Session> = when (reviveSort) {
-                    1 -> compareByDescending<Session> { it.messages.roleSeq.length }.thenByDescending { it.updatedAt }
-                    2 -> compareByDescending<Session> { it.charCount }
-                        .thenByDescending { it.messages.roleSeq.length }
-                        .thenByDescending { it.updatedAt }
-                    else -> compareByDescending { it.updatedAt }
+            // Partition/filter/sort ~3,800 sessions used to run on every recomposition
+            // (each keystroke, each contentHits update). derivedStateOf caches it until an
+            // input really changes, and unlike the old revision-keyed remember it also
+            // follows the SnapshotStateList itself: delete/import mutate the list without
+            // bumping revision, which made the row × look like it did nothing.
+            val view by remember {
+                derivedStateOf {
+                    state.revision // pin/revive/rename bump revision without touching the list
+                    computeDrawerView(
+                        state = state,
+                        query = query,
+                        associative = associative,
+                        expiredOnly = expiredOnly,
+                        reviveSort = reviveSort,
+                        contentSortByRatio = contentSortByRatio,
+                        contentHits = contentHits,
+                    )
                 }
-                val contentRows = if (query.isBlank()) emptyList() else contentHits.entries.mapNotNull { entry ->
-                    pool.firstOrNull { it.id == entry.key }?.let { it to entry.value }
-                }.sortedWith(
-                    if (contentSortByRatio) {
-                        compareByDescending<Pair<Session, ContentHit>> { it.second.ratio }
-                            .thenByDescending { it.second.matched }
-                            .thenByDescending { it.first.pinned }
-                            .thenByDescending { it.first.updatedAt }
-                    } else {
-                        compareByDescending<Pair<Session, ContentHit>> { it.second.matched }
-                            .thenByDescending { it.second.ratio }
-                            .thenByDescending { it.first.pinned }
-                            .thenByDescending { it.first.updatedAt }
-                    }
-                )
-                DrawerView(
-                    dormant = dormant,
-                    warm = warm,
-                    pool = pool,
-                    filtered = filtered,
-                    longDormant = dormant.filter { it.messages.roleSeq.length >= 20 }.sortedWith(reviveCmp),
-                    shortDormant = dormant.filter { it.messages.roleSeq.length < 20 }.sortedWith(reviveCmp),
-                    warmSorted = warm.sortedWith(reviveCmp),
-                    titleHits = if (query.isBlank()) emptyList() else filtered,
-                    contentRows = contentRows,
-                )
             }
             val dormant = view.dormant
             val warm = view.warm
@@ -435,16 +469,16 @@ internal fun DrawerPanel(
                 if (query.isBlank()) {
                     if (!expiredOnly) {
                         if (filtered.isEmpty()) {
-                            item {
+                            item(contentType = "hint") {
                                 Text("暂无可用会话", color = C.Muted, fontSize = 13.sp)
                             }
                         }
-                        items(filtered, key = { it.id }) { session ->
+                        items(filtered, key = { it.id }, contentType = { "session" }) { session ->
                             DrawerSessionRow(session, state, accent, expiredOnly, now)
                         }
                     } else {
                         if (dormant.isNotEmpty()) {
-                            item {
+                            item(contentType = "sort") {
                                 Row(
                                     Modifier.fillMaxWidth().padding(bottom = 6.dp),
                                     horizontalArrangement = Arrangement.End,
@@ -459,7 +493,7 @@ internal fun DrawerPanel(
                             }
                         }
                         if (longDormant.isNotEmpty()) {
-                            item {
+                            item(contentType = "header") {
                                 DrawerSectionHeader(
                                     title = "已不活跃 · 长对话",
                                     count = longDormant.size,
@@ -470,13 +504,13 @@ internal fun DrawerPanel(
                                 )
                             }
                             if (longExpanded) {
-                                items(longDormant, key = { it.id }) { session ->
+                                items(longDormant, key = { it.id }, contentType = { "session" }) { session ->
                                     DrawerSessionRow(session, state, accent, expiredMode = true, now = now)
                                 }
                             }
                         }
                         if (shortDormant.isNotEmpty()) {
-                            item {
+                            item(contentType = "header") {
                                 DrawerSectionHeader(
                                     title = "已不活跃 · 短对话",
                                     count = shortDormant.size,
@@ -487,13 +521,13 @@ internal fun DrawerPanel(
                                 )
                             }
                             if (shortExpanded) {
-                                items(shortDormant, key = { it.id }) { session ->
+                                items(shortDormant, key = { it.id }, contentType = { "session" }) { session ->
                                     DrawerSessionRow(session, state, accent, expiredMode = true, now = now)
                                 }
                             }
                         }
                         if (warmSorted.isNotEmpty()) {
-                            item {
+                            item(contentType = "header") {
                                 DrawerSectionHeader(
                                     title = "还有时间 · 未失效",
                                     count = warmSorted.size,
@@ -504,13 +538,13 @@ internal fun DrawerPanel(
                                 )
                             }
                             if (warmExpanded) {
-                                items(warmSorted, key = { it.id }) { session ->
+                                items(warmSorted, key = { it.id }, contentType = { "session" }) { session ->
                                     DrawerSessionRow(session, state, accent, expiredMode = true, now = now)
                                 }
                             }
                         }
                         if (dormant.isEmpty() && warm.isEmpty()) {
-                            item {
+                            item(contentType = "hint") {
                                 Text("暂无需要保留的对话", color = C.Muted, fontSize = 13.sp)
                             }
                         }
@@ -518,21 +552,21 @@ internal fun DrawerPanel(
                 } else {
                     if (titleHits.isNotEmpty()) {
                         if (contentRows.isNotEmpty() || contentSearching) {
-                            item {
+                            item(contentType = "header") {
                                 DrawerSectionHeader("标题命中", titleHits.size, accent = accent)
                             }
                         }
-                        items(titleHits, key = { "t-" + it.id }) { session ->
+                        items(titleHits, key = { "t-" + it.id }, contentType = { "session" }) { session ->
                             DrawerSessionRow(session, state, accent, expiredOnly, now)
                         }
                     }
                     if (contentSearching) {
-                        item {
+                        item(contentType = "hint") {
                             Text("正在搜索对话内容…", color = C.Muted, fontSize = 12.sp)
                         }
                     }
                     if (contentRows.isNotEmpty()) {
-                        item {
+                        item(contentType = "header") {
                             DrawerSectionHeader(
                                 title = "对话内容命中",
                                 count = contentRows.size,
@@ -540,7 +574,7 @@ internal fun DrawerPanel(
                                 accent = accent,
                             )
                         }
-                        item {
+                        item(contentType = "sort") {
                             Row(
                                 Modifier.fillMaxWidth().padding(bottom = 4.dp),
                                 horizontalArrangement = Arrangement.End,
@@ -551,7 +585,7 @@ internal fun DrawerPanel(
                                 SearchModeTab("按占比", contentSortByRatio, accent) { onContentSortChange(true) }
                             }
                         }
-                        items(contentRows, key = { "c-" + it.first.id }) { pair ->
+                        items(contentRows, key = { "c-" + it.first.id }, contentType = { "session" }) { pair ->
                             val (session, hit) = pair
                             DrawerSessionRow(
                                 session = session,
@@ -564,7 +598,7 @@ internal fun DrawerPanel(
                         }
                     }
                     if (titleHits.isEmpty() && contentRows.isEmpty() && !contentSearching) {
-                        item {
+                        item(contentType = "hint") {
                             Text(
                                 if (associative) "没有联想到相关会话" else "没有匹配的会话",
                                 color = C.Muted, fontSize = 13.sp,
@@ -608,7 +642,7 @@ internal fun DrawerPanel(
                     Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("答疑", color = C.Muted, fontSize = 12.sp)
+                    Text("答疑", color = C.Muted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.weight(1f))
                     Text("API Key · 文件 · 复活", color = C.Muted, fontSize = 11.sp)
                 }

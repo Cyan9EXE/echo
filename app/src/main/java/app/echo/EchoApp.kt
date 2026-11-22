@@ -66,6 +66,13 @@ fun EchoApp(state: AppState) {
             animationSpec = tween(Motion.dur(280, motionOn), easing = Motion.STANDARD),
         ) { C.themeProgress = C.shapeProgress(value) }
     }
+    val eyeAnim = remember { Animatable(C.eyeProgress) }
+    LaunchedEffect(C.eyeMode, C.isDay, motionOn) {
+        eyeAnim.animateTo(
+            targetValue = if (C.isDay && C.eyeMode != 0) 1f else 0f,
+            animationSpec = tween(Motion.dur(320, motionOn), easing = Motion.STANDARD),
+        ) { C.eyeProgress = value }
+    }
     val accentAnim = remember { Animatable(state.skinIndex.toFloat()) }
     LaunchedEffect(state.skinIndex, motionOn) {
         accentAnim.animateTo(
@@ -73,7 +80,8 @@ fun EchoApp(state: AppState) {
             animationSpec = tween(Motion.dur(240, motionOn), easing = Motion.STANDARD),
         )
     }
-    val accent = C.accentAt(accentAnim.value)
+    // 自定义强调色不走预设色阶，直接取用户选的颜色。
+    val accent = if (state.customMode) Color(state.customAccent) else C.accentAt(accentAnim.value)
     val baseDensity = LocalDensity.current
     val textDensity = Density(baseDensity.density, baseDensity.fontScale * state.fontScale)
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -107,10 +115,12 @@ fun EchoApp(state: AppState) {
         animationSpec = tween(Motion.dur(240, motionOn), easing = Motion.STANDARD),
         label = "drawerParallax",
     )
+    BackHandler(enabled = state.current != null) { state.backHome() }
     BackHandler(enabled = state.showDrawer) { state.showDrawer = false }
     BackHandler(enabled = state.showSettings) { state.closeSettings() }
     BackHandler(enabled = state.showHelp) { state.closeHelp() }
     BackHandler(enabled = state.showUsage) { state.closeUsage() }
+    BackHandler(enabled = state.showTheme) { state.closeTheme() }
     CompositionLocalProvider(LocalDensity provides textDensity) {
     MaterialTheme(
         colorScheme = lightColorScheme(
@@ -192,6 +202,23 @@ fun EchoApp(state: AppState) {
                 modifier = Modifier.align(Alignment.BottomCenter),
             ) {
                 SettingsSheet(state, accent, onImport)
+            }
+            AnimatedVisibility(
+                visible = state.showTheme,
+                enter = fadeIn(tween(Motion.dur(Motion.BASE, motionOn))),
+                exit = fadeOut(tween(Motion.dur(Motion.BASE, motionOn))),
+            ) {
+                Scrim(alpha = .46f) { state.closeTheme() }
+            }
+            AnimatedVisibility(
+                visible = state.showTheme,
+                enter = slideInVertically(tween(Motion.dur(Motion.SLOW, motionOn), easing = Motion.STANDARD)) { it } +
+                    fadeIn(tween(Motion.dur(Motion.BASE, motionOn))),
+                exit = slideOutVertically(tween(Motion.dur(Motion.SLOW, motionOn), easing = Motion.EXIT)) { it } +
+                    fadeOut(tween(Motion.dur(Motion.BASE, motionOn))),
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+                ThemeSheet(state, accent)
             }
             if (importGuidePage >= 0) {
                 ImportGuide(

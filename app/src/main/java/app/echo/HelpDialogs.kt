@@ -1,13 +1,6 @@
 package app.echo
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,12 +10,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,8 +24,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
@@ -119,6 +113,7 @@ internal fun BillingConfirm(
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun ImportGuide(
     page: Int,
@@ -129,100 +124,77 @@ internal fun ImportGuide(
     onPage: (Int) -> Unit,
     onPick: () -> Unit,
 ) {
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    // 轻量气泡：无遮罩、不挡操作；点外部或右上角 ✕ 关闭。
+    // Popup 自己的 window 拿不到系统栏 inset，这里在主窗口取一次导航栏高度，避免气泡压到手势条。
+    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    Popup(
+        alignment = Alignment.BottomCenter,
+        onDismissRequest = onClose,
+        properties = PopupProperties(focusable = true),
+    ) {
         Box(
-            Modifier.fillMaxSize().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 20.dp),
+            Modifier.fillMaxWidth().padding(bottom = navBottom).padding(horizontal = 16.dp, vertical = 18.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            Surface(color = C.Panel, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp)) {
-                Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 18.dp)) {
+            Surface(
+                color = C.Panel,
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp),
+            ) {
+                Column(Modifier.padding(start = 18.dp, end = 12.dp, top = 10.dp, bottom = 12.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("操作指南", color = C.Muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                        TapTarget(size = 48.dp, visual = 48.dp, onClick = onClose, description = "关闭操作指南") {
-                            CloseGlyph(Modifier.size(16.dp), C.Muted)
+                        Text(
+                            "导入历史对话",
+                            color = C.Ivory, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TapTarget(size = 40.dp, visual = 40.dp, onClick = onClose, description = "关闭导入提示") {
+                            CloseGlyph(Modifier.size(15.dp), C.Muted)
                         }
                     }
-                    AnimatedContent(
-                        targetState = page,
-                        transitionSpec = {
-                            (fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 24 }) togetherWith
-                                fadeOut(tween(140))
-                        },
-                        label = "importGuide",
-                    ) { p ->
-                        Column {
-                            when (p) {
-                                1 -> {
-                                    Text("对话文件在哪？", color = C.Ivory, fontSize = 19.sp, fontWeight = FontWeight.Medium)
-                                    Spacer(Modifier.height(10.dp))
-                                    Text(
-                                        "① 官方 App/网页 → 设置 → 账号 → 导出数据，下载 ZIP。\n" +
-                                            "② 用系统「文件」App 搜索 .zip，或从下载通知点开。\n" +
-                                            "③ 回到这里，选择该 ZIP 即可。",
-                                        color = C.Muted, fontSize = 13.sp, lineHeight = 21.sp,
-                                    )
-                                    Spacer(Modifier.height(18.dp))
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        GuideButton("返回上级", accent, true) { onPage(0) }
-                                        GuideButton("去选文件", accent, false, Modifier.weight(1f), onPick)
-                                    }
-                                }
-                                2 -> {
-                                    Text("会覆盖现有对话吗？", color = C.Ivory, fontSize = 19.sp, fontWeight = FontWeight.Medium)
-                                    Spacer(Modifier.height(10.dp))
-                                    Text(
-                                        "会。导入会覆盖本机全部会话与附件，不会上传，也不动官方账号里的数据。建议先保留原始 ZIP；导入完成后若后悔，只能从 ZIP 再导一次。",
-                                        color = C.Muted, fontSize = 13.sp, lineHeight = 21.sp,
-                                    )
-                                    Spacer(Modifier.height(18.dp))
-                                    GuideButton("返回上级", accent, true, Modifier.fillMaxWidth()) { onPage(0) }
-                                }
-                                3 -> {
-                                    Text("ZIP 从哪里导出？", color = C.Ivory, fontSize = 19.sp, fontWeight = FontWeight.Medium)
-                                    Spacer(Modifier.height(10.dp))
-                                    Text(
-                                        "打开 DeepSeek 官方 App 或网页版，进入 设置 → 账号 → 导出数据；官方会准备一个 ZIP 供下载。下载完成后回到 Echo 选择它。",
-                                        color = C.Muted, fontSize = 13.sp, lineHeight = 21.sp,
-                                    )
-                                    Spacer(Modifier.height(18.dp))
-                                    GuideButton("返回上级", accent, true, Modifier.fillMaxWidth()) { onPage(0) }
-                                }
-                                else -> {
-                                    Text("导入历史对话", color = C.Ivory, fontSize = 19.sp, fontWeight = FontWeight.Medium)
-                                    Spacer(Modifier.height(10.dp))
-                                    Text(
-                                        "下一步会打开系统文件选择器。请选择 DeepSeek 导出的 ZIP；导入会覆盖本机现有对话和附件，不会上传。",
-                                        color = C.Muted, fontSize = 13.sp, lineHeight = 21.sp,
-                                    )
-                                    Spacer(Modifier.height(14.dp))
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        GuideButton("对话文件在哪？", accent, true, Modifier.weight(1f)) { onPage(1) }
-                                        GuideButton("我明白了", accent, false, Modifier.weight(1f), onPick)
-                                    }
-                                    Spacer(Modifier.height(10.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        GuideChip("会覆盖吗？", accent) { onPage(2) }
-                                        GuideChip("ZIP 怎么导出？", accent) { onPage(3) }
-                                    }
-                                    Spacer(Modifier.height(12.dp))
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable { onSkipChange(!skip) }
-                                            .padding(vertical = 8.dp, horizontal = 4.dp),
-                                    ) {
-                                        Box(
-                                            Modifier.size(18.dp).clip(RoundedCornerShape(4.dp))
-                                                .background(if (skip) accent.copy(alpha = .16f) else Color.Transparent)
-                                                .border(1.dp, if (skip) accent else C.ControlBorder, RoundedCornerShape(4.dp)),
-                                            contentAlignment = Alignment.Center,
-                                        ) { if (skip) Text("✓", color = accent, fontSize = 12.sp) }
-                                        Spacer(Modifier.width(8.dp))
-                                        Text("以后不再提示", color = C.Muted, fontSize = 12.sp)
-                                    }
-                                }
-                            }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "下一步打开系统文件选择器，请选择 DeepSeek 官方导出的 ZIP。",
+                        color = C.Ivory, fontSize = 13.sp, lineHeight = 20.sp,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "导入会覆盖本机现有对话和附件，不会上传，也不动官方账号里的数据；建议先保留原始 ZIP。" +
+                            "ZIP 获取：官方 App/网页 → 设置 → 账号 → 导出数据。",
+                        color = C.Muted, fontSize = 11.sp, lineHeight = 17.sp,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onSkipChange(!skip) }
+                                .padding(vertical = 6.dp, horizontal = 2.dp),
+                        ) {
+                            Box(
+                                Modifier.size(18.dp).clip(RoundedCornerShape(4.dp))
+                                    .background(if (skip) accent.copy(alpha = .16f) else Color.Transparent)
+                                    .border(1.dp, if (skip) accent else C.ControlBorder, RoundedCornerShape(4.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) { if (skip) Text("✓", color = accent, fontSize = 12.sp) }
+                            Spacer(Modifier.width(8.dp))
+                            Text("以后不再提示", color = C.Muted, fontSize = 12.sp)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        TextButton(
+                            onClick = onClose,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        ) { Text("取消", color = C.Muted, fontSize = 13.sp) }
+                        Spacer(Modifier.width(4.dp))
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(accent)
+                                .clickable(onClick = onPick)
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text("去选择", color = C.Void, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -231,46 +203,6 @@ internal fun ImportGuide(
     }
 }
 
-@Composable
-internal fun GuideButton(
-    label: String,
-    accent: Color,
-    secondary: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    if (secondary) {
-        TextButton(
-            onClick = onClick,
-            modifier = modifier.heightIn(min = 48.dp),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, C.ControlBorder),
-            contentPadding = PaddingValues(horizontal = 12.dp),
-        ) { Text(label, color = C.Ivory, fontSize = 13.sp) }
-    } else {
-        Button(
-            onClick = onClick,
-            modifier = modifier.heightIn(min = 48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = C.Void),
-            contentPadding = PaddingValues(horizontal = 12.dp),
-        ) { Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
-    }
-}
-
-@Composable
-internal fun GuideChip(label: String, accent: Color, onClick: () -> Unit) {
-    Text(
-        label,
-        color = accent,
-        fontSize = 12.sp,
-        modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .border(1.dp, accent.copy(alpha = .45f), RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
-    )
-}
 
 @Composable
 internal fun HelpCenter(state: AppState, accent: Color) {
@@ -312,7 +244,7 @@ internal fun HelpCenter(state: AppState, accent: Color) {
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text("答疑", color = C.Ivory, fontSize = 20.sp, fontWeight = FontWeight.Medium)
-                            Text("先自助；找不到就直接在对话里问 Echo。", color = C.Muted, fontSize = 11.sp)
+                            Text("先自助；找不到就直接在对话里问 DeepSeek。", color = C.Muted, fontSize = 11.sp)
                         }
                         TapTarget(size = 48.dp, visual = 48.dp, onClick = state::closeHelp, description = "关闭答疑") {
                             CloseGlyph(Modifier.size(17.dp), C.Muted)

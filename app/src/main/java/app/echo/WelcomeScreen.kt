@@ -64,6 +64,21 @@ internal fun Welcome(
                 Text("·", color = C.Muted, fontSize = 13.sp)
                 Text("设置", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { state.openSettings() })
             }
+            Spacer(Modifier.height(14.dp))
+            Column(
+                Modifier.rise(6.dp) { phase(.46f, .54f) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "优先用 DeepSeek 官方账号的免费额度；API Key 为付费调用。",
+                    color = C.Muted, fontSize = 10.sp, lineHeight = 15.sp, textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "请勿共用或泄露 Key：他人会消耗你的额度与账单；泄露请立即在官方后台删除重建。",
+                    color = C.Muted, fontSize = 10.sp, lineHeight = 15.sp, textAlign = TextAlign.Center,
+                )
+            }
         }
         Box(Modifier.rise(10.dp) { phase(.25f, .67f) }) { Composer(state, accent) }
     }

@@ -95,7 +95,7 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
     }
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Echo", color = C.Muted, fontSize = 11.sp)
+            Text("DeepSeek", color = C.Muted, fontSize = 11.sp)
             if (m.model.isNotBlank()) {
                 Spacer(Modifier.width(6.dp))
                 Text(m.model, color = C.Muted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
@@ -119,7 +119,7 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
                 ActionChip("复制") {
                     if (m.text.isNotBlank()) {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Echo reply", m.text))
+                        clipboard.setPrimaryClip(ClipData.newPlainText("DeepSeek 回复", m.text))
                         Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
                     }
                 }

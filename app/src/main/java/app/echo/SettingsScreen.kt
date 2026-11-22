@@ -244,19 +244,24 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     }
                 }
                 Spacer(Modifier.height(16.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("强调色", color = C.Ivory, fontSize = 14.sp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable {
+                        state.closeSettings()
+                        state.openTheme()
+                    },
+                ) {
+                    Text("主题", color = C.Ivory, fontSize = 14.sp)
                     Spacer(Modifier.weight(1f))
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        C.skins.forEachIndexed { i, s ->
-                            Text(
-                                s.label,
-                                color = if (state.skinIndex == i) accent else C.Muted,
-                                fontSize = 14.sp,
-                                modifier = Modifier.clickable { state.updateSkin(i) },
-                            )
-                        }
-                    }
+                    ThemeMarkView(C.mark(state.skinIndex, Color(state.customAccent), accent), 18.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (state.customMode) "自定义" else C.skinLabel(state.skinIndex),
+                        color = C.Muted,
+                        fontSize = 12.sp,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("›", color = C.Muted, fontSize = 16.sp)
                 }
                 Spacer(Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {

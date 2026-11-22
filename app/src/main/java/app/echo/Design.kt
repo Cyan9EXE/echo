@@ -11,7 +11,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +46,8 @@ import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
@@ -85,14 +89,14 @@ internal fun TopBar(state: AppState, accent: Color, title: String? = null, onBac
             }
         }
         if (onBack != null) {
-            AccentSwitcher(state)
+            ThemeSwitcher(state, accent)
             Spacer(Modifier.width(6.dp))
             TapTarget(size = 48.dp, visual = 48.dp, onClick = { state.openSettings() }, description = "设置") {
                 MoreGlyph(Modifier.size(20.dp), C.Muted)
             }
         } else {
-            DayNightToggle(progress = C.themeProgress, accent = accent, onClick = state::toggleDay)
-            Spacer(Modifier.width(14.dp))
+            ThemeSwitcher(state, accent)
+            Spacer(Modifier.width(10.dp))
             TapTarget(size = 48.dp, visual = 44.dp, onClick = { state.newChat() }, description = "新建对话") {
                 Box(
                     Modifier.size(36.dp).clip(CircleShape).border(1.dp, C.ControlBorder, CircleShape),
@@ -183,59 +187,134 @@ internal fun Pressable(
     }
 }
 
+/** 主题指示块：像冒号那样上下两块 —— 上块是底色提示（白亮/灰暗/护眼色），下块是主题色。四态由 [C.mark] 给出。 */
 @Composable
-internal fun DayNightToggle(progress: Float, accent: Color, onClick: () -> Unit) {
-    val p = progress.coerceIn(0f, 1f)
-    val isDay = p > .5f
-    TapTarget(
-        size = 48.dp,
-        visual = 44.dp,
-        onClick = onClick,
-        description = if (isDay) "当前日间，点击切换到夜间" else "当前夜间，点击切换到日间",
+internal fun ThemeMarkView(mark: ThemeMark, size: Dp) {
+    val block = size * .42f
+    val radius = RoundedCornerShape(block * .34f)
+    Column(
+        Modifier.size(size),
+        verticalArrangement = Arrangement.spacedBy(size * .16f),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Canvas(Modifier.size(30.dp)) {
-            val d = size.minDimension
-            val c = Offset(size.width / 2f, size.height / 2f)
-            val close = smooth01(p / .52f)
-            val flare = smooth01((p - .50f) / .50f)
-            val core = d * (.345f - .120f * smooth01(p))
-            val bite = d * .312f * (1f - close)
-            val body = Path().apply { addOval(Rect(c.x - core, c.y - core, c.x + core, c.y + core)) }
-            val disc = if (bite > .002f) {
-                val hole = Path().apply {
-                    addOval(
-                        Rect(
-                            c.x + d * .155f - bite,
-                            c.y - d * .095f - bite,
-                            c.x + d * .155f + bite,
-                            c.y - d * .095f + bite,
-                        ),
-                    )
+        Box(Modifier.size(block).clip(radius).background(mark.top))
+        Box(Modifier.size(block).clip(radius).background(mark.bottom))
+    }
+}
+
+/** 日/夜图标：月亮的挖洞逐渐合上、光线散开，形状连续 morph 成太阳。 */
+@Composable
+internal fun SunMoonMark(progress: Float, accent: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val p = progress.coerceIn(0f, 1f)
+        val d = size.minDimension
+        val c = Offset(size.width / 2f, size.height / 2f)
+        val close = smooth01(p / .52f)
+        val flare = smooth01((p - .50f) / .50f)
+        val core = d * (.345f - .120f * smooth01(p))
+        val bite = d * .312f * (1f - close)
+        val body = Path().apply { addOval(Rect(c.x - core, c.y - core, c.x + core, c.y + core)) }
+        val disc = if (bite > .002f) {
+            val hole = Path().apply {
+                addOval(
+                    Rect(
+                        c.x + d * .155f - bite,
+                        c.y - d * .095f - bite,
+                        c.x + d * .155f + bite,
+                        c.y - d * .095f + bite,
+                    ),
+                )
+            }
+            Path.combine(PathOperation.Difference, body, hole)
+        } else {
+            body
+        }
+        withTransform({
+            rotate(degrees = 18f * (1f - close), pivot = c)
+            scale(scaleX = .88f + .12f * close, scaleY = .88f + .12f * close, pivot = c)
+        }) {
+            drawPath(disc, accent)
+        }
+        if (flare > .002f) {
+            val inner = core + d * .048f
+            val outer = inner + d * .175f * flare
+            for (i in 0 until 8) {
+                val a = i * PI.toFloat() / 4f
+                drawLine(
+                    color = accent.copy(alpha = .35f + .65f * flare),
+                    start = Offset(c.x + cos(a) * inner, c.y + sin(a) * inner),
+                    end = Offset(c.x + cos(a) * outer, c.y + sin(a) * outer),
+                    strokeWidth = d * .062f,
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
+    }
+}
+
+/** 顶栏主题区：日/夜按钮（点=切换，按住下滑=打开面板）+ 冒号指示块（点=打开面板）。 */
+@Composable
+internal fun ThemeSwitcher(state: AppState, accent: Color) {
+    val mark = C.mark(state.skinIndex, Color(state.customAccent), accent)
+    val label = if (state.customMode) "自定义" else C.skinLabel(state.skinIndex)
+    val haptics = LocalHapticFeedback.current
+    val threshold = with(LocalDensity.current) { 26.dp.toPx() }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    role = Role.Button,
+                ) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    state.toggleDay()
                 }
-                Path.combine(PathOperation.Difference, body, hole)
-            } else {
-                body
-            }
-            withTransform({
-                rotate(degrees = 18f * (1f - close), pivot = c)
-                scale(scaleX = .88f + .12f * close, scaleY = .88f + .12f * close, pivot = c)
-            }) {
-                drawPath(disc, accent)
-            }
-            if (flare > .002f) {
-                val inner = core + d * .048f
-                val outer = inner + d * .175f * flare
-                for (i in 0 until 8) {
-                    val a = i * PI.toFloat() / 4f
-                    drawLine(
-                        color = accent.copy(alpha = .35f + .65f * flare),
-                        start = Offset(c.x + cos(a) * inner, c.y + sin(a) * inner),
-                        end = Offset(c.x + cos(a) * outer, c.y + sin(a) * outer),
-                        strokeWidth = d * .062f,
-                        cap = StrokeCap.Round,
-                    )
+                .pointerInput(Unit) {
+                    var travelled = 0f
+                    var opened = false
+                    detectVerticalDragGestures(
+                        onDragStart = { travelled = 0f; opened = false },
+                        onDragEnd = { travelled = 0f },
+                        onDragCancel = { travelled = 0f },
+                    ) { _, dy ->
+                        if (!opened && dy > 0f) {
+                            travelled += dy
+                            if (travelled > threshold) {
+                                opened = true
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                state.openTheme()
+                            }
+                        }
+                    }
                 }
-            }
+                .semantics {
+                    contentDescription = "日夜间切换，当前" + (if (C.isDay) "日间" else "夜间") +
+                        "；按住下滑打开主题面板"
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            SunMoonMark(progress = C.themeProgress, accent = accent, modifier = Modifier.size(28.dp))
+        }
+        Spacer(Modifier.width(2.dp))
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    role = Role.Button,
+                ) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    state.openTheme()
+                }
+                .semantics { contentDescription = "主题 $label；点按打开主题面板" },
+            contentAlignment = Alignment.Center,
+        ) {
+            ThemeMarkView(mark, 20.dp)
         }
     }
 }
@@ -286,7 +365,13 @@ internal fun TapTarget(
 }
 
 @Composable
-internal fun Chip(icon: String, label: String, active: Boolean, accent: Color, onClick: () -> Unit) {
+internal fun Chip(
+    icon: @Composable (Color) -> Unit,
+    label: String,
+    active: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+) {
     val color = if (active) accent else C.Muted
     Pressable(
         onClick = onClick,
@@ -297,39 +382,10 @@ internal fun Chip(icon: String, label: String, active: Boolean, accent: Color, o
         scale = .95f,
         description = label,
     ) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(icon, color = color, fontSize = 11.sp)
-            Spacer(Modifier.width(4.dp))
+        Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(13.dp), contentAlignment = Alignment.Center) { icon(color) }
+            Spacer(Modifier.width(5.dp))
             Text(label, color = color, fontSize = 11.sp)
-        }
-    }
-}
-
-@Composable
-internal fun AccentSwitcher(state: AppState) {
-    Row(
-        Modifier.height(34.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
-        C.skins.forEachIndexed { i, s ->
-            val on = state.skinIndex == i
-            Box(
-                Modifier
-                    .size(22.dp)
-                    .clip(CircleShape)
-                    .clickable { state.updateSkin(i) }
-                    .semantics { contentDescription = "强调色 " + s.label },
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .size(if (on) 13.dp else 9.dp)
-                        .clip(CircleShape)
-                        .background(if (C.isDay) s.day else s.night)
-                        .then(if (on) Modifier.border(1.5.dp, C.Ivory, CircleShape) else Modifier),
-                )
-            }
         }
     }
 }

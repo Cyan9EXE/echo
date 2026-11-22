@@ -61,10 +61,18 @@ class AppState(private val context: Context) {
         private set
     var systemPrompt by mutableStateOf(prefs.getString("systemPrompt", "").orEmpty())
         private set
+    // 0..C.skins.lastIndex = preset skin, C.skins.size = custom accent colour.
     var skinIndex by mutableStateOf(
         prefs.getInt("skinIndex", if (prefs.getBoolean("blueAccent", true)) 1 else 0)
-            .coerceIn(0, C.skins.lastIndex),
+            .coerceIn(0, C.skins.size),
     )
+        private set
+    var customAccent by mutableStateOf(prefs.getInt("customAccent", 0xFF7FA8FF.toInt()))
+        private set
+    // 0 = off, 1 = warm paper, 2 = soft green. Only rendered in day mode.
+    var eyeMode by mutableStateOf(prefs.getInt("eyeMode", 0).coerceIn(0, 2))
+        private set
+    var showTheme by mutableStateOf(false)
         private set
     var fontScale by mutableStateOf(prefs.getFloat("fontScale", 1f).coerceIn(0.9f, 1.2f))
         private set
@@ -123,6 +131,7 @@ class AppState(private val context: Context) {
         if (storedApiKey.lost) notice = "API Key 无法解密（系统密钥库已变更），请重新填写。"
         prefs.edit().remove("blueAccent").apply()
         C.initDay(prefs.getBoolean("dayMode", false))
+        C.initEye(prefs.getInt("eyeMode", 0))
         if (prefs.contains("officialToken") || prefs.contains("officialName") || prefs.contains("officialPhone") || prefs.contains("officialDeviceId") || prefs.contains("mode")) {
             prefs.edit()
                 .remove("officialToken").remove("officialName").remove("officialPhone")
@@ -179,10 +188,32 @@ class AppState(private val context: Context) {
         prefs.edit().putString("systemPrompt", systemPrompt).apply()
     }
 
+    val customMode: Boolean get() = skinIndex > C.skins.lastIndex
+
     fun updateSkin(index: Int) {
-        skinIndex = index.coerceIn(0, C.skins.lastIndex)
+        skinIndex = index.coerceIn(0, C.skins.size)
         prefs.edit().putInt("skinIndex", skinIndex).apply()
     }
+
+    /** Enters the custom-colour slot and stores the picked colour. */
+    fun selectCustomAccent(argb: Int) {
+        customAccent = argb
+        skinIndex = C.skins.size
+        prefs.edit().putInt("customAccent", argb).putInt("skinIndex", skinIndex).apply()
+    }
+
+    fun updateEyeMode(mode: Int) {
+        eyeMode = mode.coerceIn(0, 2)
+        prefs.edit().putInt("eyeMode", eyeMode).apply()
+        C.applyEye(eyeMode)
+    }
+
+    fun openTheme() {
+        showDrawer = false
+        showTheme = true
+    }
+
+    fun closeTheme() { showTheme = false }
 
     fun updateFontScale(value: Float) {
         fontScale = value.coerceIn(0.9f, 1.2f)
@@ -272,7 +303,11 @@ class AppState(private val context: Context) {
         val f = msgFile(session.id)
         io.execute { runCatching { f.delete() } }
         refreshContextTokens()
-        save()
+        // The row is gone from sessions but its index record must be rewritten even
+        // though nothing is dirty any more; also bump revision so list-level caches
+        // (drawer counts, derived rows) recompute.
+        revision++
+        save(forceIndex = true)
     }
 
     fun send(text: String) {
@@ -690,12 +725,12 @@ class AppState(private val context: Context) {
         save()
     }
 
-    fun save() {
+    fun save(forceIndex: Boolean = false) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            main.post { save() }
+            main.post { save(forceIndex) }
             return
         }
-        if (dirtyIds.isEmpty()) return
+        if (dirtyIds.isEmpty() && !forceIndex) return
         val ids = ArrayList(dirtyIds)
         dirtyIds.clear()
         val snapshots = ArrayList<SessionSnapshot>(ids.size)

@@ -1,6 +1,7 @@
 package app.echo
 
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -19,19 +20,38 @@ object C {
         Skin("蓝", Color(0xFF7FA8FF), Color(0xFF2F55B8)),
         Skin("青", Color(0xFF6FD3B4), Color(0xFF1F6B57)),
         Skin("陶", Color(0xFFF49A7C), Color(0xFF99503A)),
+        Skin("白", Color(0xFFF2EFE9), Color(0xFF151515)),
     )
 
     var isDay by mutableStateOf(false)
         private set
+
+    /** 白皮肤只在夜间完整生效，日间自动转黑，名字也随之改成「黑」。 */
+    fun skinLabel(index: Int): String {
+        val skin = skins.getOrNull(index) ?: return "自定义"
+        return if (skin.label == "白" && isDay) "黑" else skin.label
+    }
+
+    var eyeMode by mutableIntStateOf(0)
+        private set
+
+    var eyeProgress by mutableFloatStateOf(0f)
 
     fun initDay(value: Boolean) {
         isDay = value
         themeProgress = if (value) 1f else 0f
     }
 
+    fun initEye(mode: Int) {
+        eyeMode = mode.coerceIn(0, 2)
+        eyeProgress = if (isDay && mode != 0) 1f else 0f
+    }
+
     fun applyDay(value: Boolean) { isDay = value }
 
     fun toggleDay() { applyDay(!isDay) }
+
+    fun applyEye(mode: Int) { eyeMode = mode.coerceIn(0, 2) }
 
     fun accentAt(position: Float): Color {
         val p = position.coerceIn(0f, skins.lastIndex.toFloat())
@@ -40,6 +60,25 @@ object C {
         val a = mixOklab(skins[i].night, skins[i].day, themeProgress)
         val b = mixOklab(skins[i + 1].night, skins[i + 1].day, themeProgress)
         return mixOklab(a, b, f)
+    }
+
+    fun tone(accent: Color): Color = mixOklab(accent, Color.Black, 0.30f)
+
+    fun eyeLit(): Color = if (eyeMode == 2) Color(0xFFCBE7BC) else Color(0xFFF5E3A8)
+
+    fun eyeDim(): Color = mixOklab(eyeLit(), Color.Black, 0.38f)
+
+    fun mark(skinIndex: Int, custom: Color, accent: Color): ThemeMark {
+        val customMode = skinIndex > skins.lastIndex
+        val eye = isDay && eyeMode != 0
+        val top = when {
+            customMode && eye -> eyeDim()
+            customMode -> Color(0xFF6E6E6E)
+            eye -> eyeLit()
+            else -> if (isDay) Color(0xFFFFFFFF) else Color(0xFFEDEAE3)
+        }
+        val bottom = if (customMode) accent else tone(accent)
+        return ThemeMark(top, bottom)
     }
 
     fun shapeProgress(raw: Float): Float {
@@ -67,6 +106,8 @@ object C {
 }
 
 data class Skin(val label: String, val night: Color, val day: Color)
+
+data class ThemeMark(val top: Color, val bottom: Color)
 
 private fun inkFlip(bgLuminance: Float): Float {
     val t = ((bgLuminance - 0.16f) / 0.10f).coerceIn(0f, 1f)
@@ -131,7 +172,12 @@ private fun oklabToColor(l: Float, a: Float, b: Float, alpha: Float): Color {
     )
 }
 
-private class Ramp(private val night: Color, private val day: Color) {
+private class Ramp(
+    private val night: Color,
+    private val day: Color,
+    private val warmDay: Color = day,
+    private val greenDay: Color = day,
+) {
     private val packed = IntArray(STOPS + 1)
 
     init {
@@ -151,6 +197,14 @@ private class Ramp(private val night: Color, private val day: Color) {
     }
 
     fun at(t: Float): Color {
+        val base = raw(t)
+        val eye = C.eyeMode
+        if (eye == 0 || C.eyeProgress <= .001f || t <= .001f) return base
+        val target = if (eye == 2) greenDay else warmDay
+        return mixOklab(base, target, C.eyeProgress * t)
+    }
+
+    private fun raw(t: Float): Color {
         if (t <= 0f) return night
         if (t >= 1f) return day
         val x = t * STOPS
@@ -167,18 +221,18 @@ private class Ramp(private val night: Color, private val day: Color) {
     }
 }
 
-private val voidRamp = Ramp(Color(0xFF050608), Color(0xFFF4F2ED))
-private val panelRamp = Ramp(Color(0xFF12151A), Color(0xFFEFE9DE))
-private val panelHighRamp = Ramp(Color(0xFF1B1F25), Color(0xFFE6DFD1))
-private val hairRamp = Ramp(Color(0x1FFFFFFF), Color(0x2B201D19))
-private val controlRamp = Ramp(Color(0xFF7A828E), Color(0xFF847E72))
+private val voidRamp = Ramp(Color(0xFF050608), Color(0xFFF4F2ED), Color(0xFFF7F0DF), Color(0xFFEEF3E6))
+private val panelRamp = Ramp(Color(0xFF12151A), Color(0xFFEFE9DE), Color(0xFFF1E8D3), Color(0xFFE7EEDE))
+private val panelHighRamp = Ramp(Color(0xFF1B1F25), Color(0xFFE6DFD1), Color(0xFFE9DEC5), Color(0xFFDCE7D0))
+private val hairRamp = Ramp(Color(0x1FFFFFFF), Color(0x2B201D19), Color(0x2B6B5A2E), Color(0x2B384A2C))
+private val controlRamp = Ramp(Color(0xFF7A828E), Color(0xFF847E72), Color(0xFF857C64), Color(0xFF7A8A70))
 
-private val ivoryRamp = Ramp(Color(0xFFF3EFE7), Color(0xFF1A1713))
-private val mutedRamp = Ramp(Color(0xFFA8ADB5), Color(0xFF5A544B))
+private val ivoryRamp = Ramp(Color(0xFFF3EFE7), Color(0xFF1A1713), Color(0xFF2A2115), Color(0xFF1F2A1C))
+private val mutedRamp = Ramp(Color(0xFFA8ADB5), Color(0xFF5A544B), Color(0xFF6E604A), Color(0xFF5B6B51))
 
 private val blueRamp = Ramp(Color(0xFF7FA8FF), Color(0xFF2F55B8))
 
 private val dangerRamp = Ramp(Color(0xFFFF6B6B), Color(0xFFB3261E))
-private val promptRamp = Ramp(Color(0xFF121A2A), Color(0xFFEFECE6))
+private val promptRamp = Ramp(Color(0xFF121A2A), Color(0xFFEFECE6), Color(0xFFF2EAD6), Color(0xFFE9F0E1))
 
 private val scrimRamp = Ramp(Color(0xB3000000), Color(0x66000000))

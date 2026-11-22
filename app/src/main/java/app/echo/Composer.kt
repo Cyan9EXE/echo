@@ -198,9 +198,19 @@ internal fun Composer(state: AppState, accent: Color) {
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Chip("◎", "深度思考", state.thinking, accent) { state.updateThinking(!state.thinking) }
+                    Chip(
+                        icon = { color -> ThinkGlyph(color, Modifier.size(14.dp)) },
+                        label = "深度思考",
+                        active = state.thinking,
+                        accent = accent,
+                    ) { state.updateThinking(!state.thinking) }
                     Spacer(Modifier.width(8.dp))
-                    Chip("⊕", "联网", state.webSearch, accent) {
+                    Chip(
+                        icon = { color -> WebGlyph(color, Modifier.size(14.dp)) },
+                        label = "联网",
+                        active = state.webSearch,
+                        accent = accent,
+                    ) {
                         state.updateWebSearch(!state.webSearch)
                         state.notice = if (state.webSearch) {
                             "联网搜索已开启：由 DeepSeek 官方搜索服务执行，本轮使用 deepseek-flash。"
