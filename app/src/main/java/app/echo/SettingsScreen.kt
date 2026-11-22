@@ -114,41 +114,48 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     }
                 }
                 Spacer(Modifier.height(18.dp))
+                // 首次填写时可直接输入（仍以掩码显示）；已有 Key 时保持只读，
+                // 连点 3 次「显示」后才解锁查看/更换，避免误改。
+                val editing = keyShown || state.apiKey.isBlank()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("API Key", color = C.Muted, fontSize = 11.sp)
                     Spacer(Modifier.weight(1f))
-                    TapTarget(
-                        size = 48.dp,
-                        visual = 48.dp,
-                        onClick = {
-                            if (keyShown) {
-                                keyShown = false
-                                keyTip = false
-                            } else {
-                                keyTip = true
-                                keyTipAt = System.currentTimeMillis()
-                                val now = System.currentTimeMillis()
-                                keyTaps = if (now - firstTapAt > 1400L) 1 else keyTaps + 1
-                                firstTapAt = if (keyTaps == 1) now else firstTapAt
-                                if (keyTaps >= 3) {
-                                    keyTaps = 0
-                                    keyShown = true
+                    if (state.apiKey.isNotBlank()) {
+                        TapTarget(
+                            size = 48.dp,
+                            visual = 48.dp,
+                            onClick = {
+                                if (keyShown) {
+                                    keyShown = false
+                                    keyTip = false
+                                } else {
+                                    keyTip = true
+                                    keyTipAt = System.currentTimeMillis()
+                                    val now = System.currentTimeMillis()
+                                    keyTaps = if (now - firstTapAt > 1400L) 1 else keyTaps + 1
+                                    firstTapAt = if (keyTaps == 1) now else firstTapAt
+                                    if (keyTaps >= 3) {
+                                        keyTaps = 0
+                                        keyShown = true
+                                    }
                                 }
-                            }
-                        },
-                        description = if (keyShown) "隐藏 API Key" else "连续点击三次显示 API Key",
-                    ) {
-                        Text(
-                            if (keyShown) "隐藏" else "显示",
-                            color = accent, fontSize = 11.sp, fontWeight = FontWeight.Medium,
-                        )
+                            },
+                            description = if (keyShown) "隐藏 API Key" else "连续点击三次显示 API Key",
+                        ) {
+                            Text(
+                                if (keyShown) "隐藏" else "显示",
+                                color = accent, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    } else {
+                        Text("待填写", color = C.Muted, fontSize = 11.sp)
                     }
                 }
                 Spacer(Modifier.height(7.dp))
                 OutlinedTextField(
                     value = key,
-                    onValueChange = { if (keyShown) key = it },
-                    readOnly = !keyShown,
+                    onValueChange = { if (editing) key = it },
+                    readOnly = !editing,
                     placeholder = { Text("sk-...", color = C.Muted, fontSize = 13.sp) },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -188,7 +195,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                 }
                 Spacer(Modifier.height(7.dp))
                 Text(
-                    "优先用 DeepSeek 官方账号的免费额度；API Key 为付费调用。",
+                    "请求由你的 Key 直连 api.deepseek.com，按官方用量从平台余额扣费。",
                     color = C.Muted, fontSize = 10.sp, lineHeight = 15.sp,
                 )
                 Spacer(Modifier.height(2.dp))
@@ -199,7 +206,9 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                 Spacer(Modifier.height(12.dp))
                 Pressable(
                     onClick = {
-                        if (state.updateApiKey(key)) {
+                        if (key.isBlank()) {
+                            state.notice = "请先填写 API Key"
+                        } else if (state.updateApiKey(key)) {
                             state.closeSettings()
                             state.notice = "API Key 已保存"
                         }

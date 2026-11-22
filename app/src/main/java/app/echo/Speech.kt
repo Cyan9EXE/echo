@@ -126,6 +126,12 @@ object Reader {
         var started = false
         var totalCost = 0.0
         var failure: String? = null
+        var bytesWritten = 0L
+        fun push(bytes: ByteArray, size: Int) {
+            writeFully(audio, bytes, size)
+            bytesWritten += size
+        }
+        val prebufferTarget = max(minBytes, 16 * 1024)
         try {
             for (chunk in chunks) {
                 if (my != generation) return
@@ -160,8 +166,7 @@ object Reader {
                 totalCost += cost
                 val input = BufferedInputStream(conn.inputStream, 32 * 1024)
                 val buffer = ByteArray(8 * 1024)
-                var prebuffer = ByteArrayOutputStream(64 * 1024)
-                var chunkStarted = false
+                var prebuffer = ByteArrayOutputStream(prebufferTarget)
                 while (my == generation) {
                     if (pausedFlag) {
                         Thread.sleep(40)
@@ -172,10 +177,10 @@ object Reader {
                     if (n == 0) continue
                     if (!started) {
                         prebuffer.write(buffer, 0, n)
-                        if (prebuffer.size() >= 64 * 1024) {
+                        if (prebuffer.size() >= prebufferTarget) {
                             val bytes = prebuffer.toByteArray()
                             prebuffer = ByteArrayOutputStream(0)
-                            writeFully(audio, bytes, bytes.size)
+                            push(bytes, bytes.size)
                             audio.play()
                             started = true
                             main.post {
@@ -184,16 +189,14 @@ object Reader {
                                     speaking = true
                                 }
                             }
-                            chunkStarted = true
                         }
                     } else {
-                        writeFully(audio, buffer, n)
-                        chunkStarted = true
+                        push(buffer, n)
                     }
                 }
                 if (!started && prebuffer.size() > 0) {
                     val bytes = prebuffer.toByteArray()
-                    writeFully(audio, bytes, bytes.size)
+                    push(bytes, bytes.size)
                     audio.play()
                     started = true
                     main.post {
@@ -202,15 +205,25 @@ object Reader {
                             speaking = true
                         }
                     }
-                    chunkStarted = true
                 }
-                if (chunkStarted) audio.flush()
                 conn.disconnect()
                 connection = null
                 if (my != generation) return
             }
             if (my == generation && failure == null) {
-                Thread.sleep(450)
+                val totalFrames = bytesWritten / 2
+                val expectedMs = totalFrames * 1000L / 24_000
+                var deadline = SystemClock.elapsedRealtime() + expectedMs + 2_000
+                while (my == generation) {
+                    if (pausedFlag) {
+                        deadline = SystemClock.elapsedRealtime() + expectedMs + 2_000
+                        Thread.sleep(60)
+                        continue
+                    }
+                    if (audio.playbackHeadPosition.toLong() * 2 >= bytesWritten) break
+                    if (SystemClock.elapsedRealtime() > deadline) break
+                    Thread.sleep(50)
+                }
                 runCatching { audio.stop() }
                 runCatching { audio.release() }
                 track = null
