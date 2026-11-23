@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -205,6 +206,7 @@ internal fun DrawerSessionRow(
 ) {
     // Title area and the trailing action are siblings: the × used to be nested inside
     // the row's Pressable, which made the two click targets share one pointer chain.
+    var confirmDelete by remember(session.id) { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -250,7 +252,7 @@ internal fun DrawerSessionRow(
             }
         } else {
             Pressable(
-                onClick = { state.delete(session) },
+                onClick = { confirmDelete = true },
                 modifier = Modifier.size(32.dp),
                 shape = CircleShape,
                 scale = .9f,
@@ -261,6 +263,35 @@ internal fun DrawerSessionRow(
                 }
             }
         }
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            confirmButton = {
+                Text(
+                    "删除", color = C.Danger, fontSize = 13.sp,
+                    modifier = Modifier
+                        .clickable { confirmDelete = false; state.delete(session) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            },
+            dismissButton = {
+                Text(
+                    "取消", color = C.Muted, fontSize = 13.sp,
+                    modifier = Modifier
+                        .clickable { confirmDelete = false }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            },
+            title = { Text("删除会话", color = C.Ivory, fontSize = 15.sp) },
+            text = {
+                Text(
+                    "「" + session.title.ifBlank { "新对话" } + "」及其本机消息会被删除，不能撤销。",
+                    color = C.Muted, fontSize = 13.sp,
+                )
+            },
+            containerColor = C.PanelHigh,
+        )
     }
 }
 // Pure partition/filter/sort pass over the session list, cached in the composition

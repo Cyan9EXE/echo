@@ -86,6 +86,15 @@ internal data class SessionSnapshot(
     val covered: Int,
     val blocks: List<SummaryBlock>,
     val messages: List<MsgSnapshot>,
+    /** 会话级元数据随消息文件落盘，索引丢失时对账恢复不丢置顶/复活/导入/费用（R9-P2-3）。 */
+    val title: String = "",
+    val updatedAt: Long = 0L,
+    val expired: Boolean = false,
+    val revived: Boolean = false,
+    val contextMode: String = "full",
+    val imported: Boolean = false,
+    val pinned: Boolean = false,
+    val costCny: Double = 0.0,
 )
 
 internal data class IndexRow(

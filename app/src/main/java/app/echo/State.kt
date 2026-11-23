@@ -43,6 +43,9 @@ class AppState(private val context: Context) {
     private val storeDir = File(appContext.filesDir, "store")
     private val msgDir = File(storeDir, "msg")
     private val indexFile = File(storeDir, "index.json")
+    /** 删除中的会话墓碑：索引先删、文件后删；启动对账跳过墓碑并补删文件（R9-P2-2）。 */
+    private val tombstoneFile = File(storeDir, "tombstones.json")
+    private val tombstones = HashSet<String>()
     private var ioWorker: Thread? = null
     private val io = Executors.newSingleThreadExecutor { r ->
         Thread(r, "echo-store").apply {
@@ -210,6 +213,7 @@ class AppState(private val context: Context) {
                 }
             }
         })
+        tombstones.addAll(readTombstones())
         if (indexFile.exists()) loadIndexAsync() else migrateLegacyAsync()
     }
 
@@ -269,8 +273,12 @@ class AppState(private val context: Context) {
         prefs.edit().putInt("skinIndex", skinIndex).apply()
     }
 
+    /** 主题变化前先记住旧底色，供整屏交叉淡入垫底；必须在改任何 C.* 之前调用（R9-P2-5）。 */
+    private fun captureVoid() { themePrevVoid = C.Void }
+
     /** 只切外观，强调色保持不变。 */
     fun applyAppearance(look: C.Look) {
+        captureVoid()
         if (look == C.Look.INK) {
             if (C.isDay) C.applyDay(false)
         } else if (!C.isDay) {
@@ -308,6 +316,7 @@ class AppState(private val context: Context) {
 
     /** 日间自定义底色：传入 HSL 选出的 ARGB，立即生效并持久化。 */
     fun applyCustomTheme(argb: Int) {
+        captureVoid()
         customThemeArgb = argb
         customThemeOn = true
         if (!C.isDay) C.applyDay(true)
@@ -326,6 +335,7 @@ class AppState(private val context: Context) {
 
     /** 关掉自定义底色，回到预设外观。 */
     fun disableCustomTheme() {
+        captureVoid()
         customThemeOn = false
         C.applyCustomTheme(null)
         prefs.edit().putBoolean("customThemeOn", false).apply()
@@ -339,6 +349,7 @@ class AppState(private val context: Context) {
     }
 
     fun updateEyeMode(mode: Int) {
+        captureVoid()
         eyeMode = mode.coerceIn(0, 2)
         prefs.edit().putInt("eyeMode", eyeMode).apply()
         C.applyEye(eyeMode)
@@ -374,6 +385,7 @@ class AppState(private val context: Context) {
     val dayMode: Boolean get() = C.isDay
 
     fun toggleDay() {
+        captureVoid()
         C.toggleDay()
         prefs.edit().putBoolean("dayMode", C.isDay).apply()
     }
@@ -439,16 +451,22 @@ class AppState(private val context: Context) {
         invalidateCurrent()
         if (currentId == session.id) setCurrentSession(null)
         dirtyIds.remove(session.id)
-        // 只删文件不标记索引：save(forceIndex=true) 会因 indexDirty 为 false 直接返回，
-        // 旧索引仍指向这行，重启后会话「复活」（R8-P1-1）。
+        // 先写墓碑再改索引：进程在文件删除前死亡时，启动对账会跳过并补删，不会「复活」（R9-P2-2）。
+        tombstones.add(session.id)
         indexDirty = true
         indexEpoch++
         val f = msgFile(session.id)
-        io.execute { runCatching { f.delete() } }
+        io.execute { saveTombstones() }
+        io.execute {
+            val ok = runCatching { f.delete() || !f.exists() }.getOrDefault(false)
+            if (ok) {
+                tombstones.remove(session.id)
+                saveTombstones()
+            } else {
+                main.post { notice = "会话已从列表移除，但消息文件删除失败；下次启动会再试。" }
+            }
+        }
         refreshContextTokens()
-        // The row is gone from sessions but its index record must be rewritten even
-        // though nothing is dirty any more; also bump revision so list-level caches
-        // (drawer counts, derived rows) recompute.
         revision++
         save(forceIndex = true)
     }
@@ -1041,10 +1059,16 @@ class AppState(private val context: Context) {
     }
 
     private var forceIndexNext = false
-    private var indexDirty = true
+    private var indexDirty = false
     private var lastIndexWriteAt = 0L
     /** 脏标记代数：save() 开始时快照，IO 成功后只有代数未变才清 indexDirty（R8-P1-2）。 */
     private var indexEpoch = 0L
+    /** 启动索引是否加载完成；加载完成前禁止写索引，避免用不完整列表覆盖旧索引（R9-P1-1）。 */
+    private var indexLoaded = false
+    private var indexForceAfterLoad = false
+    /** 主题切换前的旧底色：EchoApp 用它做全屏交叉淡入垫底（R9-P2-5）。 */
+    var themePrevVoid by mutableStateOf(C.Void)
+        private set
 
     fun save(forceIndex: Boolean = false) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
@@ -1053,10 +1077,15 @@ class AppState(private val context: Context) {
         }
         val urgent = forceIndex || forceIndexNext
         forceIndexNext = false
+        // 启动索引加载完成前内存里可能只有新建会话：此时写索引会覆盖旧索引（R9-P1-1）。
+        // 消息文件仍可照常落盘，只拦索引；加载完成后 applyLoaded 补一次强制写。
+        if (!indexLoaded && (urgent || indexDirty)) indexForceAfterLoad = true
         val now = System.currentTimeMillis()
         // 流式期间每 ~2s 就会 markDirty；若每次都全量重写 3800 行索引会放大写 I/O（P2-5）。
         // urgent 必须无条件写索引：删除/新建会话只靠 forceIndex 传达到这里（R8-P1-1）。
-        val indexDue = PersistencePolicy.indexWriteDue(urgent, indexDirty, now, lastIndexWriteAt)
+        val indexDue = PersistencePolicy.indexDueAfterLoad(
+            indexLoaded, urgent || indexForceAfterLoad, indexDirty, now, lastIndexWriteAt,
+        )
         if (dirtyIds.isEmpty() && !indexDue) return
         val epochAtStart = indexEpoch
         val ids = ArrayList(dirtyIds)
@@ -1131,7 +1160,11 @@ class AppState(private val context: Context) {
                 ),
             )
         }
-        return SessionSnapshot(s.id, s.summary, s.summaryCovered, s.summaryBlocks.toList(), messages)
+        return SessionSnapshot(
+            s.id, s.summary, s.summaryCovered, s.summaryBlocks.toList(), messages,
+            title = s.title, updatedAt = s.updatedAt, expired = s.expired, revived = s.revived,
+            contextMode = s.contextMode, imported = s.imported, pinned = s.pinned, costCny = s.costCny,
+        )
     }
 
     private fun putSummaryBlocks(o: JSONObject, blocks: List<SummaryBlock>) {
@@ -1256,11 +1289,28 @@ class AppState(private val context: Context) {
         covered: Int,
         blocks: List<SummaryBlock>,
         messages: JSONArray,
+        title: String = "",
+        updatedAt: Long = 0L,
+        expired: Boolean = false,
+        revived: Boolean = false,
+        contextMode: String = "full",
+        imported: Boolean = false,
+        pinned: Boolean = false,
+        costCny: Double = 0.0,
     ): String = JSONObject().apply {
         put("summary", summary)
         put("covered", covered)
         putSummaryBlocks(this, blocks)
         put("messages", messages)
+        // 会话级元数据与消息同文件：索引丢失时可从消息文件恢复置顶/复活/导入/费用（R9-P2-3）。
+        put("title", title)
+        put("updatedAt", updatedAt)
+        put("expired", expired)
+        put("revived", revived)
+        put("contextMode", contextMode)
+        put("imported", imported)
+        put("pinned", pinned)
+        put("costCny", costCny)
     }.toString()
 
     private fun snapshotIndex(): List<IndexRow> = sessions.map(::sessionIndexRow)
@@ -1276,7 +1326,11 @@ class AppState(private val context: Context) {
                 ),
             )
         }
-        return sessionJson(s.summary, s.covered, s.blocks, arr)
+        return sessionJson(
+            s.summary, s.covered, s.blocks, arr,
+            title = s.title, updatedAt = s.updatedAt, expired = s.expired, revived = s.revived,
+            contextMode = s.contextMode, imported = s.imported, pinned = s.pinned, costCny = s.costCny,
+        )
     }
 
     private fun serializeIndex(rows: List<IndexRow>): String {
@@ -1297,7 +1351,36 @@ class AppState(private val context: Context) {
                 ),
             )
         }
-        return sessionJson(s.summary, s.summaryCovered, s.summaryBlocks, arr)
+        return sessionJson(
+            s.summary, s.summaryCovered, s.summaryBlocks, arr,
+            title = s.title, updatedAt = s.updatedAt, expired = s.expired, revived = s.revived,
+            contextMode = s.contextMode, imported = s.imported, pinned = s.pinned, costCny = s.costCny,
+        )
+    }
+
+    private fun readTombstones(): List<String> = runCatching {
+        val arr = JSONArray(tombstoneFile.readText())
+        val out = ArrayList<String>(arr.length())
+        for (i in 0 until arr.length()) arr.optString(i).takeIf { it.isNotBlank() }?.let(out::add)
+        out
+    }.getOrDefault(emptyList())
+
+    private fun saveTombstones() {
+        val arr = JSONArray()
+        for (id in tombstones) arr.put(id)
+        runCatching { writeAtomic(tombstoneFile, arr.toString()) }
+    }
+
+    /** 把消息文件里索引/内存/墓碑都没有的会话补进 list；candidates 按最近修改优先（R9-P1-2）。 */
+    private fun appendOrphans(list: MutableList<Session>) {
+        val indexed = list.mapTo(HashSet()) { it.id }
+        val candidates = (msgDir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: emptyArray())
+            .sortedByDescending { it.lastModified() }
+            .map { it.name.substringBeforeLast('-') }
+            .filter { it.isNotBlank() }
+        for (id in PersistencePolicy.reconcileIds(indexed, emptySet(), tombstones, candidates)) {
+            sessionFromMessageFile(msgFile(id))?.let { list.add(it) }
+        }
     }
 
     private fun writeAtomic(file: File, text: String) {
@@ -1341,16 +1424,19 @@ class AppState(private val context: Context) {
         val last = record.messages.lastOrNull()?.time?.takeIf { it > 0L } ?: f.lastModified()
         val s = Session(
             id = id,
-            title = record.messages.firstOrNull { it.role == "user" }?.text?.trim()?.take(24).orEmpty()
-                .ifBlank { "未命名会话" },
-            updatedAt = last,
-            expired = now - last > 604_800_000L,
-            revived = false,
-            contextMode = if (record.summary.isNotBlank()) "summary" else "full",
+            title = record.title.ifBlank {
+                record.messages.firstOrNull { it.role == "user" }?.text?.trim()?.take(24).orEmpty()
+                    .ifBlank { "未命名会话" }
+            },
+            updatedAt = record.updatedAt.takeIf { it > 0L } ?: last,
+            expired = record.expired || now - last > 604_800_000L,
+            // 元数据随消息文件落盘：对账恢复的会话不丢置顶/复活/导入/费用（R9-P2-3）。
+            revived = record.revived,
+            contextMode = record.contextMode.ifBlank { if (record.summary.isNotBlank()) "summary" else "full" },
             summaryCovered = record.covered.coerceAtLeast(0),
-            imported = false,
-            pinned = false,
-            costCny = 0.0,
+            imported = record.imported,
+            pinned = record.pinned,
+            costCny = record.costCny,
         )
         s.messages.markReady(record.messages)
         s.messages.unload()
@@ -1360,18 +1446,27 @@ class AppState(private val context: Context) {
         return s
     }
 
-    private fun loadIndexAsync() {
+    private fun loadIndexAsync(inMemoryIds: Set<String> = emptySet()) {
         io.execute {
             val list = ArrayList<Session>()
             var corrupt = false
+            var indexWritten = false
+            var droppedTombstoned = 0
             runCatching {
                 val arr = JSONArray(indexFile.readText())
                 for (i in 0 until arr.length()) {
                     val o = arr.optJSONObject(i) ?: continue
                     val s = sessionFromIndex(o) ?: continue
+                    // 已删除但索引还没来得及重写的行不能复活成空会话（R9-P2-2）。
+                    if (s.id in tombstones) { droppedTombstoned++; continue }
                     list.add(s)
                 }
             }.onFailure { corrupt = true }
+            if (!corrupt && droppedTombstoned > 0) {
+                indexWritten = runCatching {
+                    writeAtomic(indexFile, serializeIndex(list.map(::sessionIndexRow)))
+                }.isSuccess || indexWritten
+            }
             if (corrupt) {
                 // 坏索引不能静默当空列表：备份原文件，尽量从消息文件重建（P2-6）。
                 runCatching {
@@ -1382,31 +1477,54 @@ class AppState(private val context: Context) {
                 // 合并去重，且保留坏索引里还能读出的 pinned/revived/imported/cost（R8-P2-2）。
                 list.addAll(PersistencePolicy.mergeRebuilt(valid, rebuildIndexFromMessages()) { it.id })
                 if (list.isNotEmpty()) {
-                    runCatching { writeAtomic(indexFile, serializeIndex(list.map(::sessionIndexRow))) }
+                    indexWritten = runCatching {
+                        writeAtomic(indexFile, serializeIndex(list.map(::sessionIndexRow)))
+                    }.isSuccess
                     main.post { notice = "会话索引损坏，已从本地会话文件重建 " + list.size + " 个会话。" }
                 } else {
                     main.post { notice = "会话索引损坏且无法从本地文件重建；可用「导入历史对话」恢复。" }
                 }
             }
-            // 索引与消息文件对账：导入写盘后索引写失败、或索引丢行时，会话不能永久隐身
-            // （R8-P1-2 / P2-5）。只解析缺失的少数文件，不全扫 3800 条消息内容。
+            // 墓碑会话：索引已删，消息文件可能还残留；补删成功后才能移除墓碑（R9-P2-2）。
+            if (tombstones.isNotEmpty()) {
+                val left = ArrayList<String>()
+                for (id in ArrayList(tombstones)) {
+                    val f = msgFile(id)
+                    if (!runCatching { f.delete() || !f.exists() }.getOrDefault(false)) left.add(id)
+                }
+                main.post {
+                    tombstones.clear()
+                    tombstones.addAll(left)
+                    io.execute { saveTombstones() }
+                }
+            }
+            // 索引与消息文件对账：索引丢行/导入后索引写失败时补齐；按最近修改优先、不截断，
+            // 不再出现「每次启动只恢复 50 条」（R9-P1-2 / P2-5）。
             val indexed = list.mapTo(HashSet()) { it.id }
-            val fileIds = (msgDir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: emptyArray())
+            val candidates = (msgDir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: emptyArray())
+                .sortedByDescending { it.lastModified() }
                 .map { it.name.substringBeforeLast('-') }
                 .filter { it.isNotBlank() }
-            val orphans = PersistencePolicy.orphanSessionIds(indexed, emptySet(), fileIds.toSet())
+            val orphans = PersistencePolicy.reconcileIds(indexed, inMemoryIds, tombstones, candidates)
             if (orphans.isNotEmpty()) {
                 var added = 0
                 for (id in orphans) {
-                    val s = sessionFromMessageFile(msgFile(id)) ?: continue
-                    list.add(s)
-                    added++
+                    sessionFromMessageFile(msgFile(id))?.let { list.add(it); added++ }
                 }
                 if (added > 0) {
-                    runCatching { writeAtomic(indexFile, serializeIndex(list.map(::sessionIndexRow))) }
+                    indexWritten = runCatching {
+                        writeAtomic(indexFile, serializeIndex(list.map(::sessionIndexRow)))
+                    }.isSuccess || indexWritten
+                    main.post { notice = "已从本机会话文件补回 " + added + " 个索引里缺失的会话。" }
                 }
             }
-            main.post { applyLoaded(list) }
+            main.post {
+                if (indexWritten) {
+                    indexDirty = false
+                    lastIndexWriteAt = System.currentTimeMillis()
+                }
+                applyLoaded(list, indexWritten)
+            }
         }
     }
 
@@ -1430,7 +1548,8 @@ class AppState(private val context: Context) {
         }
     }
 
-    private fun applyLoaded(list: List<Session>) {
+    private fun applyLoaded(list: List<Session>, indexWritten: Boolean = false) {
+        indexLoaded = true
         val sorted = list.sortedByDescending { it.updatedAt }
         // The cold-start index may lag behind memory: keep local/dirty/current sessions (P3-2).
         val loadedIds = sorted.mapTo(HashSet()) { it.id }
@@ -1455,6 +1574,13 @@ class AppState(private val context: Context) {
             refreshContextTokens()
         }
         revision++
+        // 加载期间被拦下的强制写索引在这里补写：此时 sessions 才是完整列表（R9-P1-1）。
+        if (indexForceAfterLoad || indexDirty) {
+            indexForceAfterLoad = false
+            save(forceIndex = true)
+        } else if (indexWritten || lastIndexWriteAt == 0L) {
+            lastIndexWriteAt = System.currentTimeMillis()
+        }
     }
 
     private val readyOrder = ArrayDeque<String>()
@@ -1558,6 +1684,14 @@ class AppState(private val context: Context) {
         val summary: String,
         val covered: Int,
         val blocks: List<SummaryBlock>,
+        val title: String = "",
+        val updatedAt: Long = 0L,
+        val expired: Boolean = false,
+        val revived: Boolean = false,
+        val contextMode: String = "",
+        val imported: Boolean = false,
+        val pinned: Boolean = false,
+        val costCny: Double = 0.0,
     )
 
     /** 只做 IO 解析，不碰 Compose 状态；结果交给主线程 [applyParsedRecord]。 */
@@ -1592,6 +1726,14 @@ class AppState(private val context: Context) {
             summary = o.optString("summary"),
             covered = if (o.has("covered")) o.optInt("covered") else -1,
             blocks = readSummaryBlocks(o),
+            title = o.optString("title"),
+            updatedAt = o.optLong("updatedAt"),
+            expired = o.optBoolean("expired"),
+            revived = o.optBoolean("revived"),
+            contextMode = o.optString("contextMode"),
+            imported = o.optBoolean("imported"),
+            pinned = o.optBoolean("pinned"),
+            costCny = o.optDouble("costCny", 0.0),
         )
     }.getOrNull()
 
@@ -1627,8 +1769,31 @@ class AppState(private val context: Context) {
         }.getOrDefault(emptyList())
     }
 
+    /** 索引缺失时也必须扫消息文件，否则会话全部不可见（R9-P1-2）。 */
+    private fun rebuildAllAsync() {
+        io.execute {
+            val rebuilt = rebuildIndexFromMessages()
+            val wrote = if (rebuilt.isNotEmpty()) {
+                runCatching { writeAtomic(indexFile, serializeIndex(rebuilt.map(::sessionIndexRow))) }.isSuccess
+            } else {
+                false
+            }
+            main.post {
+                applyLoaded(rebuilt, wrote)
+                notice = if (rebuilt.isEmpty()) {
+                    "没有找到本机会话文件；可用「导入历史对话」恢复。"
+                } else {
+                    "会话索引缺失，已从本地会话文件恢复 " + rebuilt.size + " 个会话。"
+                }
+            }
+        }
+    }
+
     private fun migrateLegacyAsync() {
-        if (!legacyFile.exists()) return
+        if (!legacyFile.exists()) {
+            rebuildAllAsync()
+            return
+        }
         io.execute {
             val list = ArrayList<Session>()
             runCatching {
@@ -1644,12 +1809,13 @@ class AppState(private val context: Context) {
                     }
                     r.endArray()
                 }
+                appendOrphans(list)
                 writeAtomic(indexFile, buildIndexJsonFrom(list))
                 runCatching { legacyFile.renameTo(File(storeDir, "legacy-sessions.json.bak")) }
             }.onFailure {
                 main.post { notice = "旧版会话数据迁移失败：" + (it.message ?: "未知错误") }
             }
-            main.post { applyLoaded(list) }
+            main.post { applyLoaded(list, true) }
         }
     }
 
@@ -2007,15 +2173,28 @@ class AppState(private val context: Context) {
             }
             append("；超过 7 天未活跃的会话标为「已失效」，可逐条复活。")
         }
-        // 索引 JSON 在 IO 线程构建并写入；失败必须告知用户，否则会话文件写了、索引没写，
-        // 重启后只能靠启动对账找回（R8-P2-5）。
-        val rows = sessions.map(::sessionIndexRow)
+        // 索引加载完成前导入：消息文件已写，但此刻写索引会用不完整列表覆盖旧索引（R9-P1-1）。
+        // 把导入项标脏让 applyLoaded 保留它们，加载完成后统一强制写一次完整索引。
+        if (!indexLoaded) {
+            fresh.forEach { markDirty(it.id) }
+            indexForceAfterLoad = true
+            return
+        }
+        // 索引 JSON 在 IO 线程构建并写入（主线程不再遍历 3800 行，R9-P3-4）；失败必须告知用户；
+        // 成功清脏要校验 epoch，导入期间新 markDirty 的变更不能被误清（R9-P2-1）。
+        val epochAtStart = indexEpoch
+        val snapshotSessions = ArrayList(sessions)
         io.execute {
+            val rows = snapshotSessions.map(::sessionIndexRow)
             val ok = runCatching { writeAtomic(indexFile, serializeIndex(rows)) }.isSuccess
             main.post {
                 if (ok) {
-                    indexDirty = false
-                    lastIndexWriteAt = System.currentTimeMillis()
+                    if (PersistencePolicy.mayClearIndexDirty(epochAtStart, indexEpoch)) {
+                        indexDirty = false
+                        lastIndexWriteAt = System.currentTimeMillis()
+                    } else {
+                        forceIndexNext = true
+                    }
                 } else {
                     indexDirty = true
                     indexEpoch++

@@ -1130,11 +1130,12 @@ private fun StreamingTail(text: String, accent: Color) {
     }
     // 只缓存「已经写满的整块」：块边界不移动时字符串与列表都不重建，
     // 每个 token 只重排最后一段增长中的尾部（R8-P2-3）。
-    val complete = text.length / TAIL_CHUNK
-    val stable = remember(complete) {
-        if (complete == 0) emptyList() else chunkText(text.substring(0, complete * TAIL_CHUNK), TAIL_CHUNK)
+    // 稳定前缀边界若落在代理对中间则回退一格，避免 emoji 被两个 Text 各显示半个（R9-P2-4）。
+    val stableLength = streamStableLength(text, TAIL_CHUNK)
+    val stable = remember(stableLength) {
+        if (stableLength == 0) emptyList() else chunkText(text.substring(0, stableLength), TAIL_CHUNK)
     }
-    val tail = text.substring(complete * TAIL_CHUNK)
+    val tail = text.substring(stableLength)
     Column(Modifier.fillMaxWidth()) {
         if (tail.isEmpty() && stable.isNotEmpty()) {
             // 恰好停在块边界：不留一行空尾，把最后一块也交给带光标的纯文本渲染。
@@ -1157,6 +1158,17 @@ private fun StableStreamText(text: String) {
         lineHeight = 26.sp,
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/**
+ * 流式稳定前缀长度：整块数 × chunk；边界前一位若是高代理项则回退一格，
+ * 保证稳定前缀与尾部不会各拿半个 emoji（R9-P2-4）。
+ */
+internal fun streamStableLength(text: String, chunk: Int): Int {
+    if (chunk <= 0) return 0
+    var boundary = (text.length / chunk) * chunk
+    if (boundary > 0 && text[boundary - 1].isHighSurrogate()) boundary--
+    return boundary
 }
 
 /** 按字符数切块，但不切断代理对，避免流式时出现半个 emoji（P3-1）。 */

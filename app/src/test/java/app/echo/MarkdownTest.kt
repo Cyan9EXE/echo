@@ -341,4 +341,18 @@ class MarkdownTest {
             assertTrue(f.stable.isEmpty())
         }
     }
+
+    @Test
+    fun streamStableBoundaryNeverSplitsSurrogatePair() {
+        // 1200 边界正好落在 emoji 的代理对之间时，稳定前缀必须回退一格（R9-P2-4）。
+        val emoji = "\uD83D\uDE00"
+        val before = "a".repeat(1199) + emoji          // 长度为 1201，边界 1200 位于代理对内部
+        assertEquals(1199, streamStableLength(before, 1200))
+        val clean = "a".repeat(1200)                   // 边界正好在字符之间
+        assertEquals(1200, streamStableLength(clean, 1200))
+        val atBoundary = "a".repeat(1198) + emoji      // 边界 1200 落在代理对之后
+        assertEquals(1200, streamStableLength(atBoundary, 1200))
+        assertEquals(0, streamStableLength("abc", 1200))
+        assertEquals(0, streamStableLength(before, 0))
+    }
 }

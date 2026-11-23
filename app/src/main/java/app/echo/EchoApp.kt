@@ -74,8 +74,6 @@ fun EchoApp(state: AppState) {
     // 主题色是全局静态 token，若逐帧插值，每一帧都会让读取颜色的整棵树重组（P2-6）。
     // 这里改为一次性换色，再用只在绘制阶段取值的 alpha 做 220ms 交叉淡入。
     val themeFade = remember { Animatable(1f) }
-    // 交叉淡入期间垫在内容层后面的旧底色：外层背景不能抢在内容之前硬切（R8-P2-4）。
-    var prevVoid by remember { mutableStateOf(C.Void) }
     var statusBarDark by remember { mutableStateOf(C.Void.luminance() > 0.42f) }
     var themeInitialized by remember { mutableStateOf(false) }
     LaunchedEffect(
@@ -84,8 +82,6 @@ fun EchoApp(state: AppState) {
         val wantDay = if (C.isDay) 1f else 0f
         val wantEye = if (C.isDay && C.eyeMode != 0) 1f else 0f
         val animate = themeInitialized && motionOn
-        // 旧底色必须在改 themeProgress 之前取；之后 C.Void 已经是新色。
-        prevVoid = C.Void
         C.themeProgress = wantDay
         C.eyeProgress = wantEye
         val newDark = C.Void.luminance() > 0.42f
@@ -115,7 +111,7 @@ fun EchoApp(state: AppState) {
     }
     val view = LocalView.current
     // 阈值放在中间灰附近：过早翻成深色图标会在深色背景上「消失」；
-    // statusBarDark 在主题淡入完成后才更新（P2-3）。
+    // statusBarDark 在交叉淡入中点翻转，背景与图标只跳一次（R9-P2-5）。
     SideEffect {
         val activity = view.context.findActivity() ?: return@SideEffect
         WindowCompat.getInsetsController(activity.window, view).apply {
@@ -165,16 +161,16 @@ fun EchoApp(state: AppState) {
             scrim = Color.Black,
         ),
     ) {
-        // 整屏一起淡入淡出：旧底色垫在图层外，新底色和内容一起在图层内淡入，
-        // 背景因此也是渐变的而不是先硬切（R8-P2-4）。
+        // 整屏一起淡入淡出：旧底色全屏垫底（含状态栏/导航栏），新底色与内容在第二层
+        // 全屏淡入，最后才是安全区内边距。旧底色在主题变更前由 AppState 捕获（R9-P2-5）。
+        Box(Modifier.fillMaxSize().background(state.themePrevVoid)) {
         Box(
             Modifier
                 .fillMaxSize()
-                .background(prevVoid)
-                .safeDrawingPadding()
                 .graphicsLayer { alpha = themeFade.value }
                 .background(C.Void),
         ) {
+        Box(Modifier.fillMaxSize().safeDrawingPadding()) {
             AnimatedContent(
                 targetState = state.current != null,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
@@ -347,6 +343,8 @@ fun EchoApp(state: AppState) {
                     )
                 }
             }
+        }
+        }
         }
     }
     }
