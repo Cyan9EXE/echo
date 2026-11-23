@@ -29,7 +29,14 @@
 
 ## 截图
 
-真机截图待补（本仓库不伪造截图）。计划补齐：欢迎页、对话页（流式 + 思考折叠）、失效会话复活、前部摘要 + 后部原文、外观与字号、用量与费用面板、设置与关于。补图后放在 docs/screenshots/ 并在本节引用。
+以下为实际运行截图（Android 模拟器，1080 × 2340，夜间外观 + 蓝强调色），未合成、未修饰；余额、费用与额度均为本机测试数据。
+
+| | |
+|---|---|
+| **欢迎页**：最近一次会话、三个入口与输入区<br>![欢迎页](docs/screenshots/01-welcome.png) | **对话页**：Markdown 标题 / 列表 / 引用 / 代码围栏，行内公式 E=mc²<br>![对话页 Markdown 渲染](docs/screenshots/02-chat-markdown.png) |
+| **会话抽屉**：关键词 / 联想搜索，现用与已失效会话分组，底部为对话保留与设置<br>![会话抽屉](docs/screenshots/03-drawer.png) | **设置**：官方 API Key（默认掩码）、模型、回答风格、最大输出<br>![设置](docs/screenshots/04-settings.png) |
+| **主题**：外观 × 强调色共 20 个预设，可交叉组合，并支持自定义 HSL 强调色<br>![主题](docs/screenshots/05-theme.png) | **用量与费用**：官方余额、TTS / ASR / 对话估算与计价说明<br>![用量与费用](docs/screenshots/06-usage.png) |
+| **失效会话复活**：超过 7 天的对话可选完整原文或「前部摘要 + 后部原文」<br>![失效会话复活](docs/screenshots/07-revive.png) | **前部摘要 + 后部原文**：早期内容在本机压成主题块，后部原文保留，不调用 API<br>![前部摘要](docs/screenshots/08-frontsummary.png) |
 
 ## 技术
 
