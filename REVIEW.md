@@ -103,6 +103,13 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **本地 CI 演练**：`bash scripts/run_tests.sh --smoke` 全绿 = `compileDebugKotlin` + `testDebugUnitTest`（91 绿）+ `mock_sse_server.py --selftest` 15/15 + 冒烟（normal 有 message_stop、truncated 无、429 状态码正确）；脚本自己探测 python3/python。`.github/workflows/ci.yml` 同步存在，因暂不发布 GitHub 未实跑。
 - **真机回归**：1.0.3 安装后真 Key 发 ping →「Pong! 🏓 / What can I help you with today?」，底部「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错。
 
+### TTS 48k 重采样与静音修复（1.0.4 → 1.0.5，2026-11-23）
+
+- **1.0.4 的问题**：真机朗读有嘶嘶噪声；1.0.5 重写 Reader：官方 TTS 返回 24 kHz 单声道 PCM16，客户端用 Up2 半带 FIR 升采样到 48 kHz 后交给 AudioTrack（48000 Hz / MONO / PCM16 / MODE_STREAM），PREBUFFER 32 KB，track buffer 降到 64 KB。
+- **静音根因**：首版 48k 实现把 262,144 B 的 track 缓冲一次性写入 249,600 B 后就停止供数，AudioFlinger 在 play() 后约 0.54 s 判 underrun 并 `BUFFER TIMEOUT: remove track(55) from active list due to underrun on thread 13`，`playbackHeadPosition` 恒 0、实际不出声。降缓冲后写入按实时节奏阻塞，track 不再被移除。
+- **修复后取证**（emulator-5554，正式 1.0.5）：AudioFlinger track `FrmCnt=32768`（64 KB），`AT::add` 15:16:19.632 → `AT::remove` 15:16:22.137 正常结束（T，播放约 2.5 s，无 BUFFER TIMEOUT）。
+- **QEMU 抓音**（`emu_tts54.wav`，t=6.4–8.2 s 段）：peak 0.00879 / rms 0.00163 / active 34/77；频带 0–300 Hz 10.7%、300–1k 30.3%、1–6k 35.4%、6–10k 14.7%、10–16k 8.4%、16–22k 0.5%；f0≈272 Hz 且存在 272/278/276 与 812/814/816 Hz 谐波，spectral flatness(100–8k)=0.0063 —— 确认为语音而非噪声，静音问题修复。
+
 ### 性能（真机实测，0.9.2 / versionCode 13）
 
 - **上下文条轮询**：流式生成时每 500ms 刷新 token 估算。原实现每次都遍历整段会话（`historyMessages()` 过滤 + `sumOf`，长会话持续产生临时 List/String 垃圾）；现在发送时缓存历史字符数 `contextBaseChars`，轮询只叠加当前回复的 `text.length`（O(1)），`onDone/onError/stopGenerating` 再全量校准一次。`refreshContextTokens()` 移到 `streaming = true` 之后调用，缓存才会生效。
@@ -143,7 +150,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 **身份与版本**
 
 - applicationId / namespace：**app.echo**；旧包名 app.xuxie 已废弃，禁止再使用（与旧版数据不互通，属已确认的破坏性变更）。
-- versionCode / versionName：1.0.0 = 1 / 1.0.0、1.0.1 = 2 / 1.0.1、1.0.2 = 3 / 1.0.2；当前 **1.0.3 = 4 / 1.0.3**。两者只在 gradle.properties（echo.versionCode / echo.versionName）维护，app/build.gradle 只读取。
+- versionCode / versionName：1.0.0 = 1 / 1.0.0、1.0.1 = 2 / 1.0.1、1.0.2 = 3 / 1.0.2、1.0.3 = 4 / 1.0.3、1.0.4 = 5 / 1.0.4；当前 **1.0.5 = 6 / 1.0.5**。两者只在 gradle.properties（echo.versionCode / echo.versionName）维护，app/build.gradle 只读取。
 - minSdk 26 / targetSdk 35 / compileSdk 35。
 
 **签名**
@@ -156,6 +163,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 **构建产物**
 
+- **1.0.5 / versionCode 6**（TTS 朗读重写：官方 24 kHz 流经 Up2 半带 FIR 升采样到 48 kHz 输出，track buffer 64 KB / prebuffer 32 KB，修复 1.0.4 的噪声与 1.0.5 首版 48k 播放的缓冲超时静音；横屏欢迎页紧凑布局、旋转不重建 Activity、输入草稿 rememberSaveable）：`app/build/outputs/apk/release/app-release.apk`，1,439,033 B，mtime 2026-11-23 15:08；SHA-256 `130daed8776d64cfcd1e7c39ca0b88443475c21fa2cb4e3977ab05fe522f087b`；emulator-5554 安装后 dumpsys 显示 versionCode=6 / versionName=1.0.5；AudioFlinger 取证与 QEMU 抓音见 §4「TTS 48k 重采样与静音修复」。
 - **1.0.3 / versionCode 4**（协议回归 + 本地 CI 演练：把请求体拼装与 SSE 循环从 `ApiClient.stream` 抽成纯函数 `buildChatBody` / `pumpSse`，新增 `ProtocolTest.kt` 15 例；`scripts/run_tests.sh --smoke` 本地跑通编译 + 91 单测 + mock 自检 + normal/truncated/429 冒烟）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:40；SHA-256 `d2c6f62a89f839d6341ca84f196167a24d5fa1ef40e09d762e91d9940e67a42c`；emulator-5554 安装后 dumpsys 显示 versionCode=4 / versionName=1.0.3；重构后真机 ping 冒烟正常（回复「Pong! 🏓」，「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错）。
 - **1.0.2 / versionCode 3**（导入文案纠错：答疑中心与导入 FAQ 由「会覆盖本机全部会话」改为「按会话 ID 合并、已存在跳过、附件不导入、全程不上传」，与导入实现口径一致）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:29；SHA-256 `fbb19241fdfd9c8adf211d63e382d45193f3ea6b848264adc2721f9dd8e2f78b`；emulator-5554 安装后 dumpsys 显示 versionCode=3 / versionName=1.0.2（lastUpdateTime 2026-11-23 09:30:06）；导入气泡、导入 FAQ 与答疑中心两条新文案均真机核对。
 - **1.0.1 / versionCode 2**（导出打磨：`unsafeNameChars` 去半角逗号、单会话导出 notice 改为「已导出 Markdown 文件」）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 08:38:17；SHA-256 `b524753d18276cc416c5882cef461125d80138a3e174dd9254659c67b0ec0836`；apksigner 校验 signer 证书 SHA-256 与上节一致；emulator-5554 安装后 dumpsys 显示 versionCode=2 / versionName=1.0.1（lastUpdateTime 2026-11-23 08:38:32）。
@@ -167,6 +175,6 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 - 新增 LICENSE（MIT，2026 Echo contributors）与 NOTICE（Compose/Kotlin/AndroidX/Apache-2.0 归属；Echo 名称/图标/视觉资产保留所有权利）。
 - README 重写：品牌边界、AI 辅助 AS IS、免费非商业但 MIT 允许任何用途、维护边界（不做云同步/账号/后端/广告/内购/非公开接口）、AOT 表述改为“profile 引导、机器码设备本地生成”。
-- 已知限制与进度同步：Markdown/LaTeX 渲染、单会话 Markdown 与全会话 ZIP 导出、README 八张实拍截图、导出文件名安全化、协议正确性（Sse.kt / maxTokens / message_stop 校验）、导入健壮性与兼容层文档（docs/protocol-compat.md）均已在 1.0.1 完成；1.0.2 修正导入文案口径并补完真 Key 冒烟（联网搜索 citations 全链路已打通，见 §4）；1.0.3 完成协议回归（抽 `buildChatBody`/`pumpSse` + `ProtocolTest` 15 例，总计 91 单测）与本地 CI 演练。仍在路线图中的是：CI 在 GitHub 实跑（暂不发布）、旧 UI 三项收尾。
+- 已知限制与进度同步：Markdown/LaTeX 渲染、单会话 Markdown 与全会话 ZIP 导出、README 八张实拍截图、导出文件名安全化、协议正确性（Sse.kt / maxTokens / message_stop 校验）、导入健壮性与兼容层文档（docs/protocol-compat.md）均已在 1.0.1 完成；1.0.2 修正导入文案口径并补完真 Key 冒烟（联网搜索 citations 全链路已打通，见 §4）；1.0.3 完成协议回归（抽 `buildChatBody`/`pumpSse` + `ProtocolTest` 15 例，总计 91 单测）与本地 CI 演练；1.0.4 重写 TTS 朗读（48 kHz 输出 + 24k→48k 升采样），1.0.5 修复 48k 播放缓冲超时导致的静音，并补横屏欢迎页、旋转不重建、输入草稿保留。仍在路线图中的是：CI 在 GitHub 实跑（暂不发布）、旧 UI 三项收尾。
 
 **说明**：本文第 3–5 节的性能与交互验证数据来自 0.9.2（app.xuxie）；1.0.0 仅变更身份与签名，代码行为未变，因此这些数据继续有效。

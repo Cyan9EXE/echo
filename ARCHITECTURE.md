@@ -19,7 +19,7 @@ EchoApp.kt（312） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedCo
 ChatScreen.kt（407） | 会话页 | 上下文条、导出入口、复活横幅、摘要卡、贴底跟随滚动
 MessageViews.kt（388） | 消息渲染 | 思考折叠、流式光标、分块渲染、计费行、朗读入口、来源
 Composer.kt（308） | 输入区 | 发送/暂停、深度思考/联网、模型标签、语音输入
-WelcomeScreen.kt（97） | 欢迎页 | 品牌 mark、继续上次、导入入口
+WelcomeScreen.kt（131） | 欢迎页 | 品牌 mark、继续上次、导入入口
 Drawer.kt（667） | 会话抽屉 | 标题/联想/内容搜索、对话保留面板、失效分组
 SettingsScreen.kt（603） | 设置与关于 | Key 显示保护、模型、最大输出、系统提示词、语音、外观、导入
 HelpDialogs.kt（517） | 答疑与引导 | 12 条 FAQ、4 级导入向导、通用计费确认
@@ -30,7 +30,7 @@ Api.kt（239） | 网络与流式 | 请求体、SSE 读取循环、错误映射
 Sse.kt（73） | 协议解析 | 纯函数 parse(event, json)，可 JVM 单测
 Secret.kt（113） | KeyVault | Android Keystore + AES-256-GCM
 Billing.kt（243） | 计费 | 价格常量、用量账本、余额接口
-Speech.kt（493） | 语音 | TTS 流式播放、ASR 录音与识别
+Speech.kt（635） | 语音 | TTS 流式播放、ASR 录音与识别
 Export.kt（580） | 导出引擎与面板 | 单会话 Markdown / 全会话 ZIP、会话页导出面板；已接入
 Design.kt（427） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:114）
 Theme.kt（384） | 主题 | 外观、强调色、Oklab 色阶与过渡

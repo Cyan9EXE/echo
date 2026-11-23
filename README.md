@@ -2,7 +2,7 @@
 
 一个原生 Android 客户端（Kotlin + Jetpack Compose）：把 DeepSeek 官方导出的历史会话 ZIP 导入本机，逐会话复活已超过 7 天未活跃的对话；对话直接走用户自己的 API Key（BYOK），不经过任何中转服务器。
 
-> **版本 1.0.3（MIT 版） · versionCode 4** · 由 **DeepSeek-V4.1Flash** 构建
+> **版本 1.0.5（MIT 版） · versionCode 6** · 由 **DeepSeek-V4.1Flash** 构建
 > 第三方客户端，与 DeepSeek 官方无隶属关系；DeepSeek 名称与商标归其所有者。
 
 ## 免责声明与品牌边界
@@ -21,7 +21,7 @@
 - **导出**：会话页上下文条点「导出」，可把当前会话导成 Markdown，或把全部会话导成带 index.md 的 ZIP；走系统文件选择器，不申请存储权限。默认文件名会把半角逗号等不安全字符替换为「-」（如 `Echo-Render-markdown-test--sh-20261123-0848.md`），完成后提示「已导出 Markdown 文件」或「已导出 N 个会话的 ZIP」。
 - **上下文透明**：显示当前 token / 1M、占比、原文或摘要模式，以及每轮与累计估算费用。
 - **流式对话**：思考过程折叠；支持暂停、重试、复制、朗读；单次输出上限默认 32K tokens，可在设置里选 8K / 16K / 32K / 64K，触顶会明确提示。
-- **官方语音**：TTS 朗读（¥3 / 万计费字符）与语音识别（¥0.78 / 小时），调用前弹计费确认，可勾选不再提示；本机用量账本。
+- **官方语音**：TTS 朗读（¥3 / 万计费字符）与语音识别（¥0.78 / 小时），调用前弹计费确认，可勾选不再提示；本机用量账本。朗读把官方 24 kHz 流在本机用半带 FIR 升采样到 48 kHz 输出，64 KB 播放缓冲避免缓冲超时静音。
 - **联网搜索**：调用官方 deepseek_web_search 工具，回答附带来源链接。
 - **外观**：日间 / 夜间 / 暖黄 / 淡绿四种外观 × 金 · 蓝 · 青 · 陶 · 白五种强调色（共 20 个预设，可交叉组合）；支持自定义 HSL 强调色；字号可调；切换有过渡动画。
 - **隐私**：API Key 默认隐藏，连续点 3 次「显示」才展示，展示期间禁止截屏；Key 用 Android Keystore（AES-256-GCM）加密后才落盘，磁盘上没有明文；Key、会话与附件只存在本机。
@@ -40,7 +40,7 @@
 
 ## 技术
 
-纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。25 个 Kotlin 文件、约 8,900 行：
+纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。26 个 Kotlin 文件、约 10,700 行：
 
     app/src/main/java/app/echo/
       MainActivity / EchoApp     入口与导航
@@ -55,7 +55,7 @@
 
 - namespace = applicationId = app.echo；旧包名 app.xuxie 已废弃，不得再使用。
 - minSdk 26 / targetSdk 35。
-- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 4 / 1.0.3）。
+- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 6 / 1.0.5）。
 - 测试：JVM 单元测试 **91 例 0 失败**，覆盖请求体拼装与 SSE 解析/协议回归（`buildChatBody` / `pumpSse`）、计费与切分、格式化、导出渲染与 Markdown 解析；本地 `bash scripts/run_tests.sh --smoke` 会跑编译 + 单测 + mock SSE 自检 + 冒烟，命令与约定见 CONTRIBUTING.md；GitHub Actions 见 .github/workflows/ci.yml。
 - 性能：对话页只在贴底时跟随流式输出；会话列表的分区 / 搜索 / 排序结果按状态缓存；索引写入与消息解析全部下沉 IO 线程。
 - AOT（profile 引导）：release 内置官方 androidx.baselineprofile 插件生成的 **Baseline Profile**，并依赖 androidx.profileinstaller:1.4.1。Baseline Profile 只是“热点方法清单”，随同一个 APK 分发到所有设备；真正的机器码由每台设备安装/空闲时由 ART 的 dex2oat 以 speed-profile 本地生成，**不随安装包分发机器码**。

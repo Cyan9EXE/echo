@@ -5,13 +5,17 @@ import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,34 +41,64 @@ internal fun Welcome(
 
     Column(Modifier.fillMaxSize()) {
         TopBar(state, accent)
-        Column(
-            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Box(Modifier.rise(16.dp) { phase(0f, .875f) }) {
-                EchoMark(color = accent, blinking = !state.typing)
-            }
-            Spacer(Modifier.height(28.dp))
-            Column(Modifier.rise(12.dp) { phase(.125f, .875f) }, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("欢迎回来，随时续上。", color = C.Ivory, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-            }
-            Spacer(Modifier.height(34.dp))
-            if (state.sessions.isNotEmpty()) {
-                Box(Modifier.fillMaxWidth().rise(10.dp) { phase(.29f, .75f) }) { ResumeCard(state, accent) }
-                Spacer(Modifier.height(18.dp))
-            }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier.rise(8.dp) { phase(.42f, .58f) },
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            // 横屏或窗口较矮时，标题区会超过可视高度：允许整体滚动；
+            // 空间富余时用 heightIn(min) 撑满，再由 Arrangement.Center 保持原来的垂直居中。
+            val roomy = maxHeight
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = roomy)
+                    .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
             ) {
-                Text("打开旧会话", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { state.showDrawer = true })
-                Text("·", color = C.Muted, fontSize = 13.sp)
-                Text("导入历史对话", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { onImport() })
-                Text("·", color = C.Muted, fontSize = 13.sp)
-                Text("设置", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { state.openSettings() })
+                // 横屏只有 ~120dp 内容高度：隐藏图标、压缩标题，并把三个入口提到续聊卡前面，
+                // 保证「打开旧会话 / 导入 / 设置」不必滚动就能点到；竖屏保持原样（图标、28sp、卡片在上）。
+                val compact = roomy < 520.dp
+                val links: @Composable () -> Unit = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.rise(8.dp) { phase(.42f, .58f) },
+                    ) {
+                        Text("打开旧会话", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { state.showDrawer = true })
+                        Text("·", color = C.Muted, fontSize = 13.sp)
+                        Text("导入历史对话", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { onImport() })
+                        Text("·", color = C.Muted, fontSize = 13.sp)
+                        Text("设置", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { state.openSettings() })
+                    }
+                }
+                if (!compact) {
+                    Box(Modifier.rise(16.dp) { phase(0f, .875f) }) {
+                        EchoMark(color = accent, blinking = !state.typing)
+                    }
+                    Spacer(Modifier.height(28.dp))
+                }
+                Column(Modifier.rise(12.dp) { phase(.125f, .875f) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "欢迎回来，随时续上。",
+                        color = C.Ivory,
+                        fontSize = if (compact) 22.sp else 28.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                Spacer(Modifier.height(if (compact) 14.dp else 34.dp))
+                if (compact) {
+                    links()
+                    Spacer(Modifier.height(14.dp))
+                    if (state.sessions.isNotEmpty()) {
+                        Box(Modifier.fillMaxWidth().rise(10.dp) { phase(.29f, .75f) }) { ResumeCard(state, accent) }
+                    }
+                } else {
+                    if (state.sessions.isNotEmpty()) {
+                        Box(Modifier.fillMaxWidth().rise(10.dp) { phase(.29f, .75f) }) { ResumeCard(state, accent) }
+                        Spacer(Modifier.height(18.dp))
+                    }
+                    links()
+                }
             }
-
         }
         Box(Modifier.rise(10.dp) { phase(.25f, .67f) }) { Composer(state, accent) }
     }
