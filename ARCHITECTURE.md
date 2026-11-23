@@ -2,7 +2,7 @@
 
 > 适用版本：1.0.5（versionCode 6）。版本号唯一来源是 gradle.properties 的 echo.versionCode / echo.versionName。本文描述当前代码，不是承诺；路径相对 app-native/。
 
-相关文档：能力与限制见 [README.md](README.md)；上游协议见 [docs/protocol-compat.md](docs/protocol-compat.md)；构建、测试与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)；明确边界见 [docs/not-doing.md](docs/not-doing.md)；性能与发布基线见 REVIEW.md（不在本文重复）。
+相关文档：能力与限制见 [README.md](README.md)；上游协议见 [docs/protocol-compat.md](docs/protocol-compat.md)；构建、测试与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)；明确边界见 [docs/not-doing.md](docs/not-doing.md)；性能与发布基线见 README.md 与 GitHub Actions 记录。
 
 ## 1. 运行时形态
 
@@ -127,7 +127,7 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 - 抽屉：computeDrawerView 用 derivedStateOf 缓存分区、排序与搜索结果；内容搜索延迟 180ms 防抖后在 io 线程遍历，结果按标题命中/内容命中分组。
 - 主题：颜色是全局静态 token，切换时一次性写入 themeProgress / eyeProgress，不再逐帧插值全树（避免每个读色组件每帧重组）；过渡为旧底色垫底、新底色与内容一起在 graphicsLayer 内做 220ms 交叉淡入，系统栏图标在淡入中点翻转。
 - Baseline Profile：androidx.baselineprofile 1.3.4 + baselineprofile 模块采集，release 内置 app/src/release/generated/baselineProfiles，运行时由 profileinstaller 安装；机器码由设备端 dex2oat 生成。
-- 性能数据见 REVIEW.md（0.9.2：冷启动中位 400ms，对比 verify 489ms，约 -18%；jank 中位约 2.2%）。版本不同，只作参考。
+- 性能数据（0.9.2 真机实测，仅作参考）：冷启动中位 400ms，对比 verify 489ms，约 -18%；jank 中位约 2.2%。
 
 ## 10. 设计系统与品牌层
 
@@ -149,7 +149,7 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 2. Markdown / LaTeX 渲染层（Markdown.kt）已接线到 MessageViews.AnswerText，但为手写子集：不支持表格 / 图片 / 嵌套列表，块级公式有布局开销；流式时未闭合尾行按纯文本渲染，完成后整体解析。
 3. 导入只保存附件文件名，不重传二进制；重复导入依赖会话 ID 去重（FAQ 与向导文案已改为「合并、已存在跳过」口径）。
 4. launcher 图标已换成蓝白命令提示符（1.6:1 圆角瓦片，提交 ccdb156）；应用内 EchoMark 与 launcher 仍是两套绘制，未来需保持同源。
-5. 无仪器测试 / 截图回归；协议回归靠 JVM 单测 + mock server，外加一轮真实 Key 人工冒烟（见 REVIEW.md §4）。
+5. 无仪器测试 / 截图回归；协议回归靠 JVM 单测 + mock server，外加一轮真实 Key 人工冒烟（见 docs/protocol-compat.md 第 12 节）。
 6. 无 ViewModel/DI：进程重建后靠磁盘索引恢复，恢复期间列表用 stub 占位。
 
 ## 13. 修改入口速查

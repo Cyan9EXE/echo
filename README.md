@@ -76,14 +76,14 @@
     echo.release.keyAlias=echo
     echo.release.keyPassword=***
 
-没有这些配置时自动回退 debug 签名，仅适合本地内测。证书 SHA-256 指纹记录在 REVIEW.md。
+没有这些配置时自动回退 debug 签名，仅适合本地内测。证书 SHA-256 指纹：5E:DA:7A:67:36:BD:0C:75:7A:8D:B4:A1:89:DD:28:04:8F:4B:8B:DC:64:E8:64:DC:1D:30:A8:75:CB:99:78:CA（同一 keystore 才能覆盖升级）。
 
 **Baseline Profile** 的生成文件默认不提交（app/src/release/generated/ 已忽略）。需要重新生成时，先连一台 API 28+ 设备/模拟器，再构建 release：
 
     ./gradlew :app:generateBaselineProfile -x lintVitalAnalyzeRelease -x lintVitalRelease
     ./gradlew :app:assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
 
-profile 由 baselineprofile 宏基准模块采集，覆盖启动、滚动、设置、会话搜索等主要路径。
+profile 由 baselineprofile 宏基准模块采集，覆盖启动、滚动、设置、会话搜索等主要路径。GitHub Release 附件同时提供 APK 与 AOT 清单包（baseline.prof / baseline.profm / baseline-prof.txt）；设备机器码由 dex2oat 本地生成，不随包分发。
 
 ## 隐私与费用
 
@@ -101,7 +101,7 @@ profile 由 baselineprofile 宏基准模块采集，覆盖启动、滚动、设�
 
 ## 未做（1.0.6 待办）
 
-- **沙金强调色增亮**：日间 `#7F6726` / 夜间 `#B4974C` 在预设面板与界面中偏暗褐，观感不佳；1.0.6 提亮沙金并同步 COLOR-V3 规范与预设面板 swatch。来源：用户反馈（2026-11-23），当前 1.0.5 版本冻结，不在本版改动。
+- **沙金强调色增亮**：日间 `#7F6726` / 夜间 `#B4974C` 在预设面板与界面中偏暗褐，观感不佳；1.0.6 提亮沙金并同步预设面板 swatch。来源：用户反馈（2026-11-23），当前 1.0.5 版本冻结，不在本版改动。
 
 ## 文档
 

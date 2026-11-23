@@ -163,11 +163,11 @@ TTS/ASR 与对话使用同一个 API Key、同一个账户；调用前弹计费�
 - minSdk 26 / compileSdk 35 / targetSdk 35；JDK 17；Gradle 8.9（仓库内含 wrapper：`./gradlew`，distributionSha256Sum 固定）。
 - Kotlin 2.0.21、AGP 8.7.3、Compose BOM 2024.09.00。
 - 版本号唯一来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 6 / 1.0.5）。
-- 发布签名与证书指纹见 REVIEW.md；签名材料不入库。
+- 发布签名与证书 SHA-256 指纹见 README.md；签名材料不入库。
 
 ## 12. 真 Key 实测记录（2026-11-23，emulator-5554）
 
-- 对话流式、深度思考、联网搜索、TTS、ASR 五项均用真实 Key 跑通，明细见 REVIEW.md §4「真 Key 冒烟」。
+- 对话流式、深度思考、联网搜索、TTS、ASR 五项均用真实 Key 跑通；以下为逐项记录。
 - 联网搜索：`deepseek_web_search` 由服务端执行，客户端收到 `citations_delta` 后在回答末尾渲染「来源」列表（实测 6 条，编号 + 标题 + URL），与第 4 节描述一致。
 - 用量字段：`message_start` 预填 `input_tokens`、`message_delta` 覆盖为全量 usage（含缓存读写），与第 7 节口径一致；余额来自 `GET /user/balance`，只读。
 - TTS 实际返回 24 kHz 单声道 PCM16；客户端用 Up2 半带 FIR 升采样到 48 kHz 后交给 AudioTrack（48000 Hz / MONO / PCM16），1.0.5 起播放缓冲 64 KB。ASR 上传后按实际时长计费（实测 64 秒 / 1 次），模拟器无麦克风输入时识别文本为空属预期。
