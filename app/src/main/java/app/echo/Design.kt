@@ -118,8 +118,10 @@ internal fun EchoMark(
     blinking: Boolean = true,
 ) {
     val alpha = remember { Animatable(1f) }
-    LaunchedEffect(blinking) {
-        if (!blinking || !Motion.animationsEnabled) {
+    // 动画开关变化也要重新评估：关闭系统动画后立即停在常亮（P2-6）。
+    val motion = Motion.animationsEnabled
+    LaunchedEffect(blinking, motion) {
+        if (!blinking || !motion) {
             alpha.snapTo(1f)
             return@LaunchedEffect
         }
@@ -307,7 +309,7 @@ internal fun ThemeSwitcher(state: AppState, accent: Color) {
         ) {
             val sunMoonProgress by animateFloatAsState(
                 targetValue = C.themeProgress,
-                animationSpec = tween(Motion.dur(280, Motion.animationsEnabled)),
+                animationSpec = tween(Motion.dur(220, Motion.animationsEnabled)),
                 label = "sunMoon",
             )
             SunMoonMark(progress = sunMoonProgress, accent = accent, modifier = Modifier.size(28.dp))

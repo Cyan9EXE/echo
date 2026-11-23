@@ -135,6 +135,9 @@ class AppState(private val context: Context) {
         private set
     private var importCancelled = false
     var revision by mutableStateOf(0)
+    /** 每次发送成功后自增：UI 用它触发一次“发送后回底”，不依赖列表尺寸变化（P2-1）。 */
+    var sendTick by mutableStateOf(0)
+        private set
     var currentId by mutableStateOf<String?>(prefs.getString("currentId", null))
         private set
 
@@ -484,6 +487,7 @@ class AppState(private val context: Context) {
         session.messages.add(reply)
         session.updatedAt = System.currentTimeMillis()
         streaming = true
+        sendTick++
         refreshContextTokens()
         notice = null
         markDirty(session.id)
@@ -652,6 +656,11 @@ class AppState(private val context: Context) {
         if (!streaming && activeStream == null) return
         flushLive?.invoke()
         flushLive = null
+        // 停止是终态：按已收到的内容先结算费用，再用代际递增让迟到的 onDone/onError 失效（P2-4）。
+        val stoppedSession = streamSessionId?.let { id -> sessions.firstOrNull { it.id == id } } ?: current
+        val stoppedReply = stoppedSession?.messages?.lastOrNull()
+            ?.takeIf { it.role == "assistant" && !it.failed }
+        if (stoppedSession != null && stoppedReply != null) finishUsage(stoppedSession, stoppedReply)
         streamSeq++
         activeStream?.cancel()
         activeStream = null
@@ -974,6 +983,8 @@ class AppState(private val context: Context) {
         val missTokens = (m.inputTokens - m.cacheReadTokens - m.cacheCreateTokens).coerceAtLeast(0)
         return m.cacheReadTokens / 1_000_000.0 * hit +
             missTokens / 1_000_000.0 * miss +
+            // 缓存写入按未命中价计费；漏掉会让会话费用偏低（P2-4）。
+            m.cacheCreateTokens / 1_000_000.0 * miss +
             m.outputTokens / 1_000_000.0 * out
     }
 
@@ -1061,6 +1072,7 @@ class AppState(private val context: Context) {
                     thinkingMs = m.thinkingMs,
                     signature = m.signature,
                     stopReason = m.stopReason,
+                    failed = m.failed,
                 ),
             )
         }
@@ -1153,6 +1165,7 @@ class AppState(private val context: Context) {
         thinkingMs: Long,
         signature: String,
         stopReason: String,
+        failed: Boolean,
     ): JSONObject = JSONObject().apply {
         put("id", id)
         put("role", role)
@@ -1168,6 +1181,8 @@ class AppState(private val context: Context) {
         put("thinkingMs", thinkingMs)
         if (signature.isNotBlank()) put("signature", signature)
         if (stopReason.isNotBlank()) put("stopReason", stopReason)
+        // 失败标记必须落盘：否则重启后错误文本会作为正常助手消息进入上下文（P2-4）。
+        if (failed) put("failed", true)
         put(
             "citations",
             JSONArray().apply {
@@ -1202,7 +1217,7 @@ class AppState(private val context: Context) {
                 msgJson(
                     m.id, m.role, m.text, m.thinking, m.model, m.time,
                     m.inputTokens, m.outputTokens, m.cacheReadTokens, m.cacheCreateTokens,
-                    m.costCny, m.citations, m.thinkingMs, m.signature, m.stopReason,
+                    m.costCny, m.citations, m.thinkingMs, m.signature, m.stopReason, m.failed,
                 ),
             )
         }
@@ -1224,7 +1239,7 @@ class AppState(private val context: Context) {
                 msgJson(
                     m.id, m.role, m.text, m.thinking, m.model, m.time,
                     m.inputTokens, m.outputTokens, m.cacheReadTokens, m.cacheCreateTokens,
-                    m.costCny, m.citations, m.thinkingMs, m.signature, m.stopReason,
+                    m.costCny, m.citations, m.thinkingMs, m.signature, m.stopReason, m.failed,
                 ),
             )
         }
@@ -1252,15 +1267,64 @@ class AppState(private val context: Context) {
         return File(msgDir, safe + "-" + Integer.toHexString(id.hashCode()) + ".json")
     }
 
+    /** 索引损坏时从本地消息文件重建：只认「文件名能反解出 id」的文件（P2-6）。 */
+    private fun rebuildIndexFromMessages(): List<Session> {
+        val files = msgDir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: return emptyList()
+        val now = System.currentTimeMillis()
+        val out = ArrayList<Session>(files.size)
+        for (f in files) {
+            val record = readSessionRecord(f) ?: continue
+            if (record.messages.isEmpty()) continue
+            val id = f.name.substringBeforeLast('-')
+            if (id.isBlank() || msgFile(id) != f) continue
+            val last = record.messages.lastOrNull()?.time?.takeIf { it > 0L } ?: f.lastModified()
+            val s = Session(
+                id = id,
+                title = record.messages.firstOrNull { it.role == "user" }?.text?.trim()?.take(24).orEmpty()
+                    .ifBlank { "未命名会话" },
+                updatedAt = last,
+                expired = now - last > 604_800_000L,
+                revived = false,
+                contextMode = if (record.summary.isNotBlank()) "summary" else "full",
+                summaryCovered = record.covered.coerceAtLeast(0),
+                imported = false,
+                pinned = false,
+                costCny = 0.0,
+            )
+            s.messages.markReady(record.messages)
+            s.messages.unload()
+            s.summary = record.summary
+            s.summaryBlocks.addAll(record.blocks)
+            s.charCount = record.messages.sumOf { it.text.length.toLong() }
+            out.add(s)
+        }
+        return out
+    }
+
     private fun loadIndexAsync() {
         io.execute {
             val list = ArrayList<Session>()
+            var corrupt = false
             runCatching {
                 val arr = JSONArray(indexFile.readText())
                 for (i in 0 until arr.length()) {
                     val o = arr.optJSONObject(i) ?: continue
                     val s = sessionFromIndex(o) ?: continue
                     list.add(s)
+                }
+            }.onFailure { corrupt = true }
+            if (corrupt) {
+                // 坏索引不能静默当空列表：备份原文件，尽量从消息文件重建（P2-6）。
+                runCatching {
+                    indexFile.renameTo(File(storeDir, "sessions.index.bad." + System.currentTimeMillis() + ".json"))
+                }
+                val rebuilt = rebuildIndexFromMessages()
+                list.addAll(rebuilt)
+                if (rebuilt.isNotEmpty()) {
+                    runCatching { writeAtomic(indexFile, serializeIndex(rebuilt.map(::sessionIndexRow))) }
+                    main.post { notice = "会话索引损坏，已从本地会话文件重建 " + rebuilt.size + " 个会话。" }
+                } else {
+                    main.post { notice = "会话索引损坏且无法从本地文件重建；可用「导入历史对话」恢复。" }
                 }
             }
             main.post { applyLoaded(list) }
@@ -1440,6 +1504,7 @@ class AppState(private val context: Context) {
                 it.costCny = m.optDouble("costCny", 0.0)
                 it.citations = readCitations(m)
                 it.stopReason = m.optString("stopReason")
+                it.failed = m.optBoolean("failed")
             })
         }
         ParsedRecord(
@@ -1773,7 +1838,14 @@ class AppState(private val context: Context) {
                                 s.messages.unload()
                                 continue
                             }
-                            val ok = runCatching { writeAtomic(msgFile(s.id), serializeSession(s)) }.isSuccess
+                            // 索引未载入时 knownIds 可能不全；绝不覆盖本机已有会话文件（P2-6）。
+                            val target = msgFile(s.id)
+                            if (target.exists()) {
+                                duplicates++
+                                s.messages.unload()
+                                continue
+                            }
+                            val ok = runCatching { writeAtomic(target, serializeSession(s)) }.isSuccess
                             if (ok) {
                                 written.add(s.id)
                                 s.messages.unload()

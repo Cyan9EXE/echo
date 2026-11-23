@@ -42,4 +42,12 @@ class FollowTailTest {
         // 不在最后一项上永远不恢复。
         assertFalse(shouldFollowTail(3, 5, 0f))
     }
+
+    @Test
+    fun sendScrollTargetAlwaysLastItem() {
+        // 发送成功后无论此前滚到哪里，目标都是最后一条（P2-1）。
+        assertEquals(4, sendScrollTarget(5))
+        assertEquals(0, sendScrollTarget(1))
+        assertNull(sendScrollTarget(0))
+    }
 }

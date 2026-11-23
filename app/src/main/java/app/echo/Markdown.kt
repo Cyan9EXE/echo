@@ -1062,12 +1062,21 @@ internal class StreamSplit {
         stable = emptyList()
     }
 
+    /** 已扫描到的下标；测试用于验证不会每个 token 重扫全文（P2-2）。 */
+    internal val scannedLength: Int get() = scanPos
+
     private fun extend(text: String) {
         var i = scanPos
         var ls = lineStart
         while (true) {
             val nl = text.indexOf('\n', i)
-            if (nl < 0) break
+            if (nl < 0) {
+                // 没有完整行：只把扫描指针推到末尾，下一 token 从新增字符继续；
+                // 否则每个 token 都会从旧 scanPos 重扫全文（P2-2）。
+                scanPos = text.length
+                lineStart = ls
+                return
+            }
             val line = text.substring(ls, nl)
             val trim = line.trim()
             var commitAt = -1
@@ -1098,8 +1107,6 @@ internal class StreamSplit {
             i = nl + 1
             ls = i
         }
-        scanPos = i
-        lineStart = ls
     }
 
     private fun fenceLine(line: String): String? {

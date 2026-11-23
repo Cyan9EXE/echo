@@ -324,8 +324,10 @@ internal fun ThinkingBlock(m: Msg, accent: Color, live: Boolean) {
 @Composable
 private fun TypingDots(color: Color) {
     val phase = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        if (!Motion.animationsEnabled) {
+    // 以动画开关为 key：关闭系统动画时立刻停下（P2-6）。
+    val motion = Motion.animationsEnabled
+    LaunchedEffect(motion) {
+        if (!motion) {
             phase.snapTo(.5f)
             return@LaunchedEffect
         }

@@ -144,7 +144,8 @@ internal fun ChatScreen(state: AppState, accent: Color) {
                 s.messages,
                 key = { index, m -> if (s.messages.ready) m.id else "stub" + index },
             ) { _, m ->
-                Box(Modifier.animateItem()) {
+                // 正在流式的这一条不进 item 动画，避免每个 token 都触发一次位移/淡入（P2-3）。
+                Box(if (m.id == liveId) Modifier else Modifier.animateItem()) {
                     if (m.role == "user") UserBubble(m.text) else AssistantBubble(m, accent, state, live = m.id == liveId)
                 }
             }
@@ -157,6 +158,16 @@ internal fun ChatScreen(state: AppState, accent: Color) {
         LaunchedEffect(s.id, s.messages.ready) {
             if (s.messages.isNotEmpty()) {
                 runCatching { listState.scrollToItem(s.messages.size - 1, Int.MAX_VALUE) }
+            }
+        }
+        // 发送成功后无论此前是否上滑，都回到底部（P2-1）：用 sendTick 事件，
+        // 不依赖列表尺寸变化，也不和用户拖拽抢手势。
+        LaunchedEffect(s.id, state.sendTick) {
+            if (state.sendTick == 0) return@LaunchedEffect
+            val target = sendScrollTarget(s.messages.size)
+            if (target != null) {
+                followTail = true
+                runCatching { listState.scrollToItem(target, Int.MAX_VALUE) }
             }
         }
         // 帧同步跟底：每帧只补“最后一项超出视口”的那几像素，文本增长和列表
@@ -395,8 +406,8 @@ internal fun RevivalBanner(state: AppState, s: Session, accent: Color) {
 internal fun ContextBar(state: AppState, accent: Color, onExport: () -> Unit = {}) {
     val s = state.current
     val tokens = state.contextTokens
-    LaunchedEffect(state.streaming, s?.id) {
-        if (!state.streaming) return@LaunchedEffect
+    LaunchedEffect(state.isStreaming(s?.id), s?.id) {
+        if (!state.isStreaming(s?.id)) return@LaunchedEffect
         while (true) {
             delay(500)
             state.refreshLiveContextTokens()
@@ -439,6 +450,9 @@ internal fun ContextBar(state: AppState, accent: Color, onExport: () -> Unit = {
  */
 internal fun tailRescueIndex(lastVisibleIndex: Int, totalItems: Int): Int? =
     if (totalItems > 0 && lastVisibleIndex in 0 until totalItems - 1) totalItems - 1 else null
+
+/** 发送成功后的滚动目标：有消息就回最后一条，空列表不回滚（P2-1）。 */
+internal fun sendScrollTarget(totalItems: Int): Int? = if (totalItems > 0) totalItems - 1 else null
 
 /**
  * 滚动停止后是否恢复跟底（P1-1/P2-2）：空列表按「在底部」处理，只有确实停在

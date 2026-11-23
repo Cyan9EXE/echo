@@ -308,4 +308,37 @@ class MarkdownTest {
         }
         assertEquals("a\uD83D\uDE00", chunks[0])
     }
+
+    @Test
+    fun streamSplitAdvancesScanOnLongSingleLine() {
+        // 8K 单行没有换行：扫描指针必须推进到末尾，下一 token 不能从头重扫（P2-2）。
+        val split = StreamSplit()
+        val line = "a".repeat(8000)
+        val first = split.frame(line)
+        assertEquals(8000, split.scannedLength)
+        assertTrue(first.stable.isEmpty())
+        assertEquals(line, first.tail)
+
+        val second = split.frame(line + "x")
+        assertEquals(8001, split.scannedLength)
+        assertEquals(line + "x", second.tail)
+        // 空行出现后整段提交，尾部只剩下一行。
+        val third = split.frame(line + "x\n\nnext")
+        assertEquals("next", third.tail)
+        assertTrue(third.stable.isNotEmpty())
+        assertTrue(third.stable[0].text.endsWith("\n\n"))
+    }
+
+    @Test
+    fun streamSplitLongSingleLineStaysOneStableChunk() {
+        // 长单行不触发逐 token 重切段：tail 始终是完整原文，不隐藏、不截断（P2-2）。
+        val split = StreamSplit()
+        val sb = StringBuilder()
+        repeat(200) {
+            sb.append("\u4e2d".repeat(40))
+            val f = split.frame(sb.toString())
+            assertEquals(sb.toString(), f.tail)
+            assertTrue(f.stable.isEmpty())
+        }
+    }
 }

@@ -52,6 +52,8 @@ internal data class MsgSnapshot(
     val thinkingMs: Long = 0L,
     val signature: String = "",
     val stopReason: String = "",
+    /** 失败/中断的回复：落盘但不进后续上下文（P2-4）。 */
+    val failed: Boolean = false,
 )
 
 data class SummaryBlock(
