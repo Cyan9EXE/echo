@@ -43,7 +43,7 @@ class AppState(private val context: Context) {
     private val storeDir = File(appContext.filesDir, "store")
     private val msgDir = File(storeDir, "msg")
     private val indexFile = File(storeDir, "index.json")
-    /** 删除中的会话墓碑：索引先删、文件后删；启动对账跳过墓碑并补删文件（R9-P2-2）。 */
+    /** 已删会话的墓碑：删除中会话的索引行保留到 commitDelete，墓碑落盘后才删消息文件；启动对账跳过墓碑并补删文件（R9-P2-2 / R13-P1-1）。 */
     private val tombstoneFile = File(storeDir, "tombstones.json")
     private val tombstoneStore = TombstoneStore(tombstoneFile)
     private val tombstones = HashSet<String>()
@@ -468,8 +468,8 @@ class AppState(private val context: Context) {
     }
 
     /**
-     * 删除会话四步事务（R10-P1-1）：① 原子写墓碑成功才动列表；② 删消息文件；③ 写过滤后的索引；
-     * ④ 索引写盘成功后才撤墓碑。任一步失败都保留墓碑，下次启动继续清理，不会复活或留幽灵。
+     * 删除会话四步事务（R10-P1-1 / R13-P1-1）：① 原子写墓碑成功才动列表；② 删消息文件（失败则回滚墓碑并提示「会话未删除」）；
+     * ③ 写过滤后的索引；④ 索引写盘成功后才撤墓碑。墓碑 / 索引失败保留墓碑与脏标记，下次启动继续清理，不会复活或留幽灵。
      */
     fun delete(session: Session) {
         val id = session.id

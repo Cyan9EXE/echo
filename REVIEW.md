@@ -223,7 +223,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 ### REVIEW-LOOP 第 12 轮（外部审查 → 修复，2026-11-24）
 
-- **对象与结论**：只读复审 `review/rounds/echo-1.0.5-round12-review.md`（报告未留档；对象 HEAD `7601d32`、代码 `6c29156`）判定 **P0=0 / P1=1 / P2=5 / P3=5 不通过**；修复提交 `13b0c63`（3 files +121/−27）。第 11 轮 P2-1 / P2-2 / P2-3 复核通过，P2-4（回滚返回值未检查）与 P2-5（测试不经过 State / IO）为 PARTIAL。
+- **对象与结论**：只读复审 `review/rounds/echo-1.0.5-round12-review.md`（报告存档于 review/rounds/ 未入库；对象 HEAD `7601d32`、代码 `6c29156`）判定 **P0=0 / P1=1 / P2=5 / P3=5 不通过**；修复提交 `13b0c63`（3 files +121/−27）。第 11 轮 P2-1 / P2-2 / P2-3 复核通过，P2-4（回滚返回值未检查）与 P2-5（测试不经过 State / IO）为 PARTIAL。
 - **P1-1 删除事务与保存 / 发送串行化**：新增 `deletingIds` / `deletingSnapshot`，删除开始即置位；`save()` 用 `PersistencePolicy.persistableIds` 过滤待写 id、索引快照也剔除删除中会话，IO 循环写前再查快照；send / open / revive / retryLast 对删除中会话直接拒绝；commitDelete 在索引写成功后于 IO 线程再确认消息文件确实不存在才撤墓碑，失败保留墓碑并提示「重启后清理」。
 - **P2-1 / P2-2 墓碑合并**：`commitDelete` 的墓碑撤除改为 IO 内 `mergeTombstones(readTombstones(), snapshot)` 再写；加载期清理改为 merge 保留加载期新增墓碑，不再整体覆盖。
 - **P2-3 加载异常**：索引加载异常不再 `applyLoaded(emptyList(), false)` 清空列表，改为保留本机会话、置 `indexForceAfterLoad` 并提示重试。
@@ -244,6 +244,13 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **验证**：debug + release 各 **132 例 0 失败**（SessionPersistence 13、TombstoneStore 6）；APK 1,480,077 B、SHA-256 `cb9bbeef…`（mtime 2026-11-24 03:41）；真机断开，仅 JVM 验证。
 - **残留**：P3-1（加载异常后自动重建）、P3-3（State.kt 单文件 2,609 行拆分）、P3-4（产物非从提交构建）留待 1.0.6。
 
+### REVIEW-LOOP 第 14 轮（外部审查，最后一轮，2026-11-24）
+
+- **对象与结论**：只读复审 `review/rounds/echo-1.0.5-round14-review.md`（178 行 / 17,398 B；对象 HEAD `5d65b3a`、代码 `dd6d5e7`）判定 **P0=0 / P1=0 / P2=5 / P3=5 有条件通过**。「P0=0 且 P1=0 才发布」的门禁满足；第 13 轮唯一 P1（删除屏障）按代码路径核验 PASS，无新增 P0/P1。
+- **P2（记入 1.0.6）**：P2-1 删除失败回调在 echo-store IO 线程直接改主线程集合（`deletingIds` / `dirtyIds` 并发修改风险）；P2-2 `commitDelete` 用含未落盘删除的 `deletingSnapshot` 过滤索引，并发删除会提前丢掉另一会话的索引行；P2-3 墓碑损坏仅安全阻断，无提示 / 修复入口；P2-4 `TombstoneStore.writeAtomic` 未 fsync 父目录、回退 `copyTo` 非原子；P2-5 132 例仍不覆盖删除屏障 / 失败路径 / UI。
+- **P3**：文档与注释陈旧（模块行数、§8 悬空引用、删除事务注释）、死代码（`readTombstones` / `saveTombstones` / `writeTombstones`、`TombstoneStore.read/write`）、墓碑只增不减、`State.kt` 仍 2,609 行、产物证据链（APK / 测试早于提交）。
+- **本轮处理**：P3 中纯文档 / 注释项已订正（模块行数、§8 引用、`State.kt` 事务注释、`TombstoneStore` 注释）；其余 P2 与 P3-2 / P3-3 / P3-4 记入 1.0.6；代码提交后重新构建 release 并跑 132 例，产物 SHA-256 记于 `dist/Echo-1.0.5/RELEASE-1.0.5.md`（仓库外）。真机断开，仅 JVM 验证。
+
 ### 性能（真机实测，0.9.2 / versionCode 13）
 
 - **上下文条轮询**：流式生成时每 500ms 刷新 token 估算。原实现每次都遍历整段会话（`historyMessages()` 过滤 + `sumOf`，长会话持续产生临时 List/String 垃圾）；现在发送时缓存历史字符数 `contextBaseChars`，轮询只叠加当前回复的 `text.length`（O(1)），`onDone/onError/stopGenerating` 再全量校准一次。`refreshContextTokens()` 移到 `streaming = true` 之后调用，缓存才会生效。
@@ -258,7 +265,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - 导入按会话 id 合并去重，只保留当前分支；附件与图片不会重传。
 - 全会话 ZIP 导出无进度条、不可取消（< 10 s，可接受）；单会话导出整份 JSON 解析，存在内存峰值。
 - CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 132 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
-- ~~release 使用 debug 签名~~ → 1.0.0 起使用正式 release keystore（证书指纹见第 8 节）；无密钥时仍回退 debug，仅限本地内测。
+- ~~release 使用 debug 签名~~ → 1.0.0 起使用正式 release keystore（证书指纹见 dist/Echo-1.0.5/RELEASE-1.0.5.md）；无密钥时仍回退 debug，仅限本地内测。
 - ~~联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路~~ → 1.0.2 已打通：服务端执行搜索，客户端收到 `citations_delta` 并在回答末尾渲染「来源」（§4 真 Key 冒烟）。
 - 性能数据以真机（LQAVP23928C105TX，90Hz 档）为准；模拟器是软件渲染，其 gfxinfo jank 比例不作指标。
 

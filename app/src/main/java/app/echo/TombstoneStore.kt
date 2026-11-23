@@ -9,7 +9,8 @@ import java.io.File
  * 约束：
  * - 读损坏绝不静默返回空集：readOrNull() 返回 null，调用方必须拒绝删除并保留原文件，
  *   否则「空集 + 新 id」会覆盖旧墓碑，让已删会话在孤儿扫描里复活。
- * - 所有写都是读-改-写，且以磁盘当前内容为底 merge，并发删除不会互相覆盖。
+ * - merge / remove 是读-改-写，且以磁盘当前内容为底 merge，并发删除不会互相覆盖；
+ *   write() 仅供空集初始化与测试，不得用于覆盖已有墓碑。
  */
 class TombstoneStore(private val file: File) {
     /** @return 磁盘上的墓碑；文件不存在返回空集；内容损坏返回 null（原文件保留，不 rename）。 */

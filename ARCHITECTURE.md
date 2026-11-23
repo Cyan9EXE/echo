@@ -15,11 +15,11 @@
 
 文件 | 职责 | 关键点
 MainActivity.kt（28） | 入口 | 只做 setContent
-EchoApp.kt（353） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
+EchoApp.kt（351） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
 ChatScreen.kt（463） | 会话页 | 上下文条、导出入口、复活横幅、摘要卡、贴底跟随滚动
 MessageViews.kt（369） | 消息渲染 | 思考折叠、流式光标、分块渲染、计费行、朗读入口、来源
 Composer.kt（352） | 输入区 | 发送/暂停、深度思考/联网、模型标签、语音输入
-WelcomeScreen.kt（139） | 欢迎页 | 品牌 mark、继续上次、导入入口
+WelcomeScreen.kt（145） | 欢迎页 | 品牌 mark、继续上次、导入入口
 Drawer.kt（698） | 会话抽屉 | 标题/联想/内容搜索、对话保留面板、失效分组
 SettingsScreen.kt（603） | 设置与关于 | Key 显示保护、模型、最大输出、系统提示词、语音、外观、导入
 HelpDialogs.kt（517） | 答疑与引导 | 12 条 FAQ、4 级导入向导、通用计费确认
@@ -27,7 +27,7 @@ UsageSheet.kt（224） | 用量与费用 | 官方余额、TTS/ASR 账本、生�
 State.kt（2609） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
 SessionPersistence.kt（83） | 落盘策略 | 索引必写/节流、加载门禁、脏标记代数、恢复对账、坏索引合并（纯 JVM 可单测）
 TombstoneStore.kt（72） | 墓碑存储 | 损坏返回 null 且保留原文件、磁盘为底 merge、原子写（纯 JVM 可单测）
-Models.kt（211） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
+Models.kt（220） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
 Api.kt（268） | 网络与流式 | 请求体、SSE 读取循环、错误映射
 Sse.kt（73） | 协议解析 | 纯函数 parse(event, json)，可 JVM 单测
 Secret.kt（113） | KeyVault | Android Keystore + AES-256-GCM
