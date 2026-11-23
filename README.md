@@ -2,7 +2,7 @@
 
 一个原生 Android 客户端（Kotlin + Jetpack Compose）：把 DeepSeek 官方导出的历史会话 ZIP 导入本机，逐会话复活已超过 7 天未活跃的对话；对话直接走用户自己的 API Key（BYOK），不经过任何中转服务器。
 
-> **版本 1.0.1（MIT 版） · versionCode 2** · 由 **DeepSeek-V4.1Flash** 构建
+> **版本 1.0.2（MIT 版） · versionCode 3** · 由 **DeepSeek-V4.1Flash** 构建
 > 第三方客户端，与 DeepSeek 官方无隶属关系；DeepSeek 名称与商标归其所有者。
 
 ## 免责声明与品牌边界
@@ -55,7 +55,7 @@
 
 - namespace = applicationId = app.echo；旧包名 app.xuxie 已废弃，不得再使用。
 - minSdk 26 / targetSdk 35。
-- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 2 / 1.0.1）。
+- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 3 / 1.0.2）。
 - 测试：JVM 单元测试覆盖 SSE 解析、计费与切分、格式化、导出渲染与 Markdown 解析，命令与约定见 CONTRIBUTING.md；CI 见 .github/workflows/ci.yml（Kotlin 编译 + 单测 + mock SSE 自检）。
 - 性能：对话页只在贴底时跟随流式输出；会话列表的分区 / 搜索 / 排序结果按状态缓存；索引写入与消息解析全部下沉 IO 线程。
 - AOT（profile 引导）：release 内置官方 androidx.baselineprofile 插件生成的 **Baseline Profile**，并依赖 androidx.profileinstaller:1.4.1。Baseline Profile 只是“热点方法清单”，随同一个 APK 分发到所有设备；真正的机器码由每台设备安装/空闲时由 ART 的 dex2oat 以 speed-profile 本地生成，**不随安装包分发机器码**。
@@ -96,7 +96,7 @@ profile 由 baselineprofile 宏基准模块采集，覆盖启动、滚动、设�
 - Markdown/LaTeX 由自研 `Markdown.kt` 渲染，属手写子集：不支持表格、图片、嵌套列表；块级公式有布局开销，超长回答（> 8000 字符）退化为纯文本。
 - 导入只保留当前分支；官方导出不含附件二进制，图片与文件不会重传；按会话 id 去重合并（同 id 保留本机版本）。
 - 全会话 ZIP 导出无进度条、不可取消（实测 < 10 s）；单会话导出整份 JSON 解析，存在内存峰值。
-- 联网搜索的真实 Key 全链路回归仍在进行中；CI 工作流已就绪但尚未在 GitHub 实跑。
+- 联网搜索真实 Key 全链路已于 2026-11-23 打通（回答末尾的来源引用可正常渲染）；CI 工作流已就绪但尚未在 GitHub 实跑。
 - 视觉与交互以主题打磨为主；附件重传、多端同步等能力见 docs/not-doing.md 与路线图。
 
 ## 文档

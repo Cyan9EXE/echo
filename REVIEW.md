@@ -85,6 +85,16 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **真机验证（emulator-5554，1080x2340，1.0.1）**：sample-history.zip →「已导入 2 个会话」；重复导入 →「没有新增会话，跳过 2 个已存在的会话」；损坏 ZIP 与不含 `chat_sessions` 的 ZIP 均命中对应文案；801 MB full-export 的导入浮层显示 10% 进度与取消按钮。
 - **单测 / 工装**：76 tests 0 failures（Billing 16 / Format 4 / Sse 19 / Export 9 / Markdown 28）；`scripts/mock_sse_server.py --selftest` 15/15；`.github/workflows/ci.yml` 已就绪但尚未在 GitHub 实跑（用户要求暂不发布）。
 
+### 真 Key 冒烟（路线图 5，emulator-5554，2026-11-23）
+
+- **环境**：真实 API Key 经系统密钥库 AES-GCM 存入本机（设置里只显示掩码）；账户余额从 ¥32.64 → ¥30.33（余额来自 `GET /user/balance`，只读）。
+- **流式对话 / 深度思考**：deepseek-flash、深度思考默认开；发送英文提问后回答逐字流出，上下文条从 55 递增到 822 / 1M，思考块折叠显示「已思考」，结束后给出本轮输入/输出 tokens 与估算费用。
+- **联网搜索**：composer 开启「联网」后提问 `Search the web for latest DeepSeek model news and give sources`；真实回答正文引用搜索摘要，末尾渲染「来源」6 条（编号 + 标题 + URL，如 `DeepSeek-V4.1-Flash-1017: Wish-Driven Programming Made Real | DeepSeek API Docs`、`DeepSeek更新模型了，还对外开放了搜索引擎`、`DeepSeek V4.1 Flash 新版本：许愿式编程一键成真`）。确认 `citations_delta` → 引用 UI 的完整链路可用（此前只有 mock/单测证据）。
+- **TTS 朗读**：短回答点「朗读 ¥0.0087」→ 计费确认「本段约 29 计费字符 / 最高约 ¥0.01」→「开始朗读」→ `dumpsys audio` 出现 `state:started type:android.media.AudioTrack … usage=USAGE_MEDIA content=CONTENT_TYPE_SPEECH … sampleRate=24000`；设置 → 用量与费用显示「朗读 TTS ¥0.02 · 58 计费字符 · 2 次」。
+- **ASR 语音识别**：`pm grant app.echo android.permission.RECORD_AUDIO` 后点麦克风 → 计费确认「单次录音最长 120 秒 / 最高约 ¥0.03」→「开始录音」→ 出现「正在聆听 · 00:5x / 02:00 · 再次点击结束」，再次点麦克风结束；用量与费用显示「语音识别 ASR ¥0.01 · 64 秒 · 1 次」。模拟器无宿主麦克风输入，识别结果为空属预期，链路与计费已走通。
+- **停止生成**：长文提问流式至约 1466 tokens 时点「暂停回答」（原发送按钮变为暂停）→ 保留已生成内容、恢复「发送」，无「连接提前结束」报错（用户主动取消不算缺 `message_stop`），底部记录 ≈¥0.0133。
+- **协议回归证据（真实 Key）**：`message_start` / `message_delta` 的 usage、`message_stop`、`citations_delta` 均被 Sse.kt 正确解析且无异常；异常 / 截断 / 429 / 500 分支由 SseTest 19 例与 mock 服务 `--selftest` 15/15 覆盖。
+
 ### 性能（真机实测，0.9.2 / versionCode 13）
 
 - **上下文条轮询**：流式生成时每 500ms 刷新 token 估算。原实现每次都遍历整段会话（`historyMessages()` 过滤 + `sumOf`，长会话持续产生临时 List/String 垃圾）；现在发送时缓存历史字符数 `contextBaseChars`，轮询只叠加当前回复的 `text.length`（O(1)），`onDone/onError/stopGenerating` 再全量校准一次。`refreshContextTokens()` 移到 `streaming = true` 之后调用，缓存才会生效。
@@ -125,7 +135,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 **身份与版本**
 
 - applicationId / namespace：**app.echo**；旧包名 app.xuxie 已废弃，禁止再使用（与旧版数据不互通，属已确认的破坏性变更）。
-- versionCode / versionName：1.0.0 = 1 / 1.0.0；当前 1.0.1 = 2 / 1.0.1。两者只在 gradle.properties（echo.versionCode / echo.versionName）维护，app/build.gradle 只读取。
+- versionCode / versionName：1.0.0 = 1 / 1.0.0、1.0.1 = 2 / 1.0.1；当前 **1.0.2 = 3 / 1.0.2**。两者只在 gradle.properties（echo.versionCode / echo.versionName）维护，app/build.gradle 只读取。
 - minSdk 26 / targetSdk 35 / compileSdk 35。
 
 **签名**
@@ -138,6 +148,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 **构建产物**
 
+- **1.0.2 / versionCode 3**（导入文案纠错：答疑中心与导入 FAQ 由「会覆盖本机全部会话」改为「按会话 ID 合并、已存在跳过、附件不导入、全程不上传」，与导入实现口径一致）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:29；SHA-256 `fbb19241fdfd9c8adf211d63e382d45193f3ea6b848264adc2721f9dd8e2f78b`；emulator-5554 安装后 dumpsys 显示 versionCode=3 / versionName=1.0.2（lastUpdateTime 2026-11-23 09:30:06）；导入气泡、导入 FAQ 与答疑中心两条新文案均真机核对。
 - **1.0.1 / versionCode 2**（导出打磨：`unsafeNameChars` 去半角逗号、单会话导出 notice 改为「已导出 Markdown 文件」）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 08:38:17；SHA-256 `b524753d18276cc416c5882cef461125d80138a3e174dd9254659c67b0ec0836`；apksigner 校验 signer 证书 SHA-256 与上节一致；emulator-5554 安装后 dumpsys 显示 versionCode=2 / versionName=1.0.1（lastUpdateTime 2026-11-23 08:38:32）。
 - **1.0.0 / versionCode 1**（MIT 版基线）：`app/build/outputs/apk/release/app-release.apk`，1,389,853 B。
 - SHA-256：cf47437dac2f7f3cadf4c56d093f43fcff2097aebd255fb229f58c931cdcc0ca
@@ -147,6 +158,6 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 - 新增 LICENSE（MIT，2026 Echo contributors）与 NOTICE（Compose/Kotlin/AndroidX/Apache-2.0 归属；Echo 名称/图标/视觉资产保留所有权利）。
 - README 重写：品牌边界、AI 辅助 AS IS、免费非商业但 MIT 允许任何用途、维护边界（不做云同步/账号/后端/广告/内购/非公开接口）、AOT 表述改为“profile 引导、机器码设备本地生成”。
-- 已知限制同步更新：Markdown/LaTeX、导出、联网搜索真实 Key 全链路、单测/CI、兼容层文档仍在路线图中。
+- 已知限制与进度同步：Markdown/LaTeX 渲染、单会话 Markdown 与全会话 ZIP 导出、README 八张实拍截图、导出文件名安全化、协议正确性（Sse.kt / maxTokens / message_stop 校验）、导入健壮性与兼容层文档（docs/protocol-compat.md）均已在 1.0.1 完成；1.0.2 修正导入文案口径并补完真 Key 冒烟（联网搜索 citations 全链路已打通，见 §4）。仍在路线图中的是单元测试与 CI 在 GitHub 实跑、协议回归用例补齐。
 
 **说明**：本文第 3–5 节的性能与交互验证数据来自 0.9.2（app.xuxie）；1.0.0 仅变更身份与签名，代码行为未变，因此这些数据继续有效。
