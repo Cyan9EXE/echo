@@ -76,4 +76,8 @@ internal object PersistencePolicy {
         for (item in existing) if (item != id) out.add(item)
         return out
     }
+
+    /** 过滤删除中的会话：保存时不落盘、不进索引（R12-P1-1）。 */
+    fun persistableIds(ids: Collection<String>, deleting: Set<String>): List<String> =
+        ids.filterNot { it in deleting }
 }

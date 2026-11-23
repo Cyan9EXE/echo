@@ -114,4 +114,17 @@ class SessionPersistenceTest {
         assertEquals(emptySet<String>(), PersistencePolicy.removeTombstone(listOf("x"), "x"))
     }
 
+    @Test
+    fun persistableIdsSkipsDeleting() {
+        assertEquals(
+            listOf("a", "c"),
+            PersistencePolicy.persistableIds(listOf("a", "b", "c"), setOf("b")),
+        )
+    }
+
+    @Test
+    fun persistableIdsKeepsAllWhenNoDeleting() {
+        assertEquals(listOf("a", "b"), PersistencePolicy.persistableIds(listOf("a", "b"), emptySet()))
+        assertEquals(emptyList<String>(), PersistencePolicy.persistableIds(emptyList<String>(), setOf("x")))
+    }
 }
