@@ -23,7 +23,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 ## 3. 1.0.5 阶段改了什么
 
-1.0.5 的主要增量：TTS 朗读重写（24 kHz → 48 kHz 升采样，见 §4）、横屏欢迎页紧凑布局 / 旋转不重建 / 输入草稿保留、COLOR-V3 五色强调色、蓝白 1.6:1 命令提示符图标，以及 REVIEW-LOOP 第 1–4 轮对流式渲染、列表跟随与数据一致性的修复（见 §4 REVIEW-LOOP 小节）。下面保留流式观感与交互的既有实现说明，作为当前行为的背景。
+1.0.5 的主要增量：TTS 朗读重写（24 kHz → 48 kHz 升采样，见 §4）、横屏欢迎页紧凑布局 / 旋转不重建 / 输入草稿保留、COLOR-V3 五色强调色、蓝白 1.6:1 命令提示符图标，以及 REVIEW-LOOP 第 1–7 轮对流式渲染、列表跟随与数据一致性的修复（见 §4 REVIEW-LOOP 小节）。下面保留流式观感与交互的既有实现说明，作为当前行为的背景。
 
 **流式观感对齐官方**
 
@@ -102,7 +102,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 - **为什么要抽纯函数**：`ApiClient.stream` 原先把 SSE 循环、请求体拼装和 Android `Handler` 绑死，JVM 单测无法覆盖。现在 `app/src/main/java/app/echo/Api.kt` 顶层有两个 `internal` 纯函数：`buildChatBody(model, thinking, webSearch, systemPrompt, messages, maxTokens): JSONObject`（max_tokens 收敛、stream/thinking、`deepseek_web_search` 工具、空白 system 省略、assistant 历史带 signature 时回放 thinking+text 两块）；`pumpSse(reader, isCancelled, onEvent): Boolean`（逐行解析 event/data、空行触发 `Sse.parse`、记录 message_stop、EOF/取消返回 false）。`ApiClient.stream` 只保留 UI/线程回调，行为不变。
 - **ProtocolTest.kt 15 例**：maxTokens 上下限收敛、model/stream/thinking 开关、webSearch 有无工具、空白 system 省略、signature 历史回放、完整轮次事件顺序与 usage `full` 标志、截断缺 message_stop、取消只消费首个事件、error 帧文案、ping/comment 不产事件、`httpErrorMessage` 401/402/429/503/504 映射、400 detail 直出与内容审核文案、未知码 fallback。
-- **测试**：本节时点（1.0.3）为 91 例 0 失败：Billing 16 / Export 9 / Format 4 / Markdown 28 / Protocol 15 / Sse 19（此前 76 例）；1.0.5 REVIEW-LOOP 第 2、3 轮后为 99 例（新增 `TtsAudioTest` 8 例）。
+- **测试**：本节时点（1.0.3）为 91 例 0 失败：Billing 16 / Export 9 / Format 4 / Markdown 28 / Protocol 15 / Sse 19（此前 76 例）；1.0.5 REVIEW-LOOP 第 2、3 轮后为 99 例（新增 `TtsAudioTest` 8 例）。第 6、7 轮后为 112 例（新增 FollowTail 与 Markdown 流式扫描用例）。
 - **本地 CI 演练**：`bash scripts/run_tests.sh --smoke` 全绿 = `compileDebugKotlin` + `testDebugUnitTest`（99 绿）+ `mock_sse_server.py --selftest` 15/15 + 冒烟（normal 有 message_stop、truncated 无、429 状态码正确）；脚本自己探测 python3/python。`.github/workflows/ci.yml` 同步存在，因暂不发布 GitHub 未实跑。
 - **真机回归**：1.0.3 安装后真 Key 发 ping →「Pong! 🏓 / What can I help you with today?」，底部「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错。
 
@@ -166,7 +166,15 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **P2-8 落盘可靠性**：`writeAtomic` 用唯一临时名 + `FileOutputStream` 的 flush / `fd.sync` + rename；`save` 主线程只做快照，索引行在 IO 线程构建；写失败把 id 放回 `dirtyIds`、索引失败置 `forceIndexNext`；`charCount` 改增量维护；`onError` 与 `onDone` 都调用 `finishUsage`（暂停轮次不再漏记费用）。
 - **P3 清理**：删除 `Motion.crossfade` / `C.voidLuminanceFor` / `C.shapeProgress`；删除 `IndexRow.systemSent` 与 `Session.systemSent` 及相关读写；`ThinkingBlock` 空思考不再重复「正在思考 + TypingDots」；`retryLast` 未 ready 时提示「会话内容还在载入」；`FollowTailTest` / `MarkdownTest` 补 6 例。
 - **验证**：`compileDebugKotlin` 通过；JVM 单测 **109 例 0 失败**（本轮 +6）；release 从工作树重建为 1,460,365 B、SHA-256 `3960aa50331867adce406c7df4d2a70b353004f0261ff008203e7ed92840d3c2`（mtime 2026-11-24 00:24）。真机仍断开，设备复验未执行。
-- **残留**：P2-7 仍缺 Compose UI 测试 / Macrobenchmark 与真机性能证据（无设备、且不加依赖的约束下暂无法补）；第 7 轮复审待发起。
+- **残留**：P2-7 仍缺 Compose UI 测试 / Macrobenchmark 与真机性能证据（无设备、且不加依赖的约束下暂无法补）；第 7 轮复审已发起（见下节）。
+
+### REVIEW-LOOP 第 7 轮（外部审查 → 修复，2026-11-24）
+
+- **外部审查**：以代码 HEAD a49e764 + 文档 HEAD 7e39ed7 为对象做只读复审，报告 `review/rounds/echo-1.0.5-round7-review.md`（348 行 / 30,569 B）。结论：P0 = 0、P1 = 0、P2 = 9、P3 = 9，**有条件通过**；第 6 轮唯一 P1（首帧跟底）已在代码层修复，发布前建议先处理 P2-1 / P2-2 / P2-4 / P2-6 / P2-3。
+- **A 组修复**（提交 e4e0c2e，9 files +164/−21）：P2-1 新增 `sendTick`，发送成功后 UI 用 `sendScrollTarget(size-1)` 强制回底；P2-2 `StreamSplit` 的扫描指针在 `indexOf `返回 -1 时推进到文本末尾并暴露 `scannedLength`，8K 单行流式不再 O(n²)；P2-3 主题淡入改 `snapTo(0.72f)` + 220ms、系统栏图标延迟到淡入结束切换、`SunMoonMark` 统一 220ms、`EchoMark` / `TypingDots` 以 `Motion.animationsEnabled` 为 key；P2-4 `stopGenerating` 先按已收到内容 `finishUsage` 再递增代际、`cacheCreateTokens` 按未命中价计费、`failed` 写入快照并在恢复时过滤；P2-6 导入时目标文件已存在则跳过不覆盖，坏索引备份为 `sessions.index.bad.<ts>.json` 后扫描消息目录重建。
+- **B 组修复**（提交 69d21f9，10 files +425/−27）：P2-5 索引写按 `indexDirty` 节流（结构变更立即、流式文本增长最多每 30s 一次）；P2-8 失效改为按 `updatedAt` 派生（`isExpiredNow` / `refreshExpired`），`MainActivity.onResume` 重新计算；P2-9 提交 Gradle 8.9 wrapper（`gradlew` / `gradlew.bat` / `gradle-wrapper.jar` / `gradle-wrapper.properties`，含 `distributionSha256Sum=d725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab`），README / CI / baselineprofile / run_tests 改用 `./gradlew`。
+- **验证**：`compileDebugKotlin` 通过；JVM 单测 **112 例 0 失败**（Billing 16 / Export 9 / FollowTail 6 / Format 4 / Markdown 35 / Protocol 15 / Sse 19 / TtsAudio 8）；release 从工作树重建为 1,460,365 B、SHA-256 `996804ad2f70d3193da9bbfaee71e91a8de88ad9bbb78583c861cd4924e27b91`（mtime 2026-11-24 01:02）。真机仍断开，设备复验未执行。
+- **残留**：P2-7 仍缺 Compose UI 测试 / Macrobenchmark 与真机性能证据；P3 清理项（文档行号、时间线统一、节假日峰谷等）留下版；第 8 轮复审待发起。
 
 ### 性能（真机实测，0.9.2 / versionCode 13）
 
@@ -181,7 +189,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - Markdown/LaTeX 由自研 `Markdown.kt` 渲染，属手写子集：不支持表格、图片、嵌套列表；块级公式有一定布局开销。流式时最后未闭合段以纯文本尾行渲染，回答完成后整体 Markdown 排版。
 - 导入按会话 id 合并去重，只保留当前分支；附件与图片不会重传。
 - 全会话 ZIP 导出无进度条、不可取消（< 10 s，可接受）；单会话导出整份 JSON 解析，存在内存峰值。
-- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 109 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
+- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 112 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
 - ~~release 使用 debug 签名~~ → 1.0.0 起使用正式 release keystore（证书指纹见第 8 节）；无密钥时仍回退 debug，仅限本地内测。
 - ~~联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路~~ → 1.0.2 已打通：服务端执行搜索，客户端收到 `citations_delta` 并在回答末尾渲染「来源」（§4 真 Key 冒烟）。
 - 性能数据以真机（LQAVP23928C105TX，90Hz 档）为准；模拟器是软件渲染，其 gfxinfo jank 比例不作指标。
@@ -221,7 +229,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 **构建产物**
 
-- **1.0.5 / versionCode 6**（TTS 朗读重写：官方 24 kHz 流经 Up2 半带 FIR 升采样到 48 kHz 输出，track buffer 64 KB / prebuffer 32 KB，修复 1.0.4 的噪声与 1.0.5 首版 48k 播放的缓冲超时静音；横屏欢迎页紧凑布局、旋转不重建 Activity、输入草稿 rememberSaveable；COLOR-V3 五色主题与蓝白 1.6:1 命令提示符图标；REVIEW-LOOP 第 1–6 轮修复）：`app/build/outputs/apk/release/app-release.apk`，1,460,365 B，mtime 2026-11-24 00:24（第 6 轮修复后从工作树重建，含跟底回归、流式稳定段、后台解析、落盘与动画修复；真机断开，设备复验证据仍来自旧包 `e7e59e10…` / `900ba8c8…`，流式与跟底路径只做 JVM 编译与单测验证）；SHA-256 `3960aa50331867adce406c7df4d2a70b353004f0261ff008203e7ed92840d3c2`；emulator-5554 安装记录 versionCode=6 / versionName=1.0.5（旧包）；AudioFlinger 取证与 QEMU 抓音见 `4「TTS 48k 重采样与静音修复」。
+- **1.0.5 / versionCode 6**（TTS 朗读重写：官方 24 kHz 流经 Up2 半带 FIR 升采样到 48 kHz 输出，track buffer 64 KB / prebuffer 32 KB，修复 1.0.4 的噪声与 1.0.5 首版 48k 播放的缓冲超时静音；横屏欢迎页紧凑布局、旋转不重建 Activity、输入草稿 rememberSaveable；COLOR-V3 五色主题与蓝白 1.6:1 命令提示符图标；REVIEW-LOOP 第 1–7 轮修复）：`app/build/outputs/apk/release/app-release.apk`，1,460,365 B，mtime 2026-11-24 01:02（第 7 轮修复后从工作树重建，含发送回底、流式扫描指针、计费与失败持久化、索引节流、失效派生与 Gradle wrapper；真机断开，设备复验证据仍来自旧包 `e7e59e10…` / `900ba8c8…`，流式与跟底路径只做 JVM 编译与单测验证）；SHA-256 `996804ad2f70d3193da9bbfaee71e91a8de88ad9bbb78583c861cd4924e27b91`；emulator-5554 安装记录 versionCode=6 / versionName=1.0.5（旧包）；AudioFlinger 取证与 QEMU 抓音见 `4「TTS 48k 重采样与静音修复」。
 - **1.0.3 / versionCode 4**（协议回归 + 本地 CI 演练：把请求体拼装与 SSE 循环从 `ApiClient.stream` 抽成纯函数 `buildChatBody` / `pumpSse`，新增 `ProtocolTest.kt` 15 例；`scripts/run_tests.sh --smoke` 本地跑通编译 + 91 单测 + mock 自检 + normal/truncated/429 冒烟）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:40；SHA-256 `d2c6f62a89f839d6341ca84f196167a24d5fa1ef40e09d762e91d9940e67a42c`；emulator-5554 安装后 dumpsys 显示 versionCode=4 / versionName=1.0.3；重构后真机 ping 冒烟正常（回复「Pong! 🏓」，「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错）。
 - **1.0.2 / versionCode 3**（导入文案纠错：答疑中心与导入 FAQ 由「会覆盖本机全部会话」改为「按会话 ID 合并、已存在跳过、附件不导入、全程不上传」，与导入实现口径一致）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:29；SHA-256 `fbb19241fdfd9c8adf211d63e382d45193f3ea6b848264adc2721f9dd8e2f78b`；emulator-5554 安装后 dumpsys 显示 versionCode=3 / versionName=1.0.2（lastUpdateTime 2026-11-23 09:30:06）；导入气泡、导入 FAQ 与答疑中心两条新文案均真机核对。
 - **1.0.1 / versionCode 2**（导出打磨：`unsafeNameChars` 去半角逗号、单会话导出 notice 改为「已导出 Markdown 文件」）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 08:38:17；SHA-256 `b524753d18276cc416c5882cef461125d80138a3e174dd9254659c67b0ec0836`；apksigner 校验 signer 证书 SHA-256 与上节一致；emulator-5554 安装后 dumpsys 显示 versionCode=2 / versionName=1.0.1（lastUpdateTime 2026-11-23 08:38:32）。
@@ -233,6 +241,6 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 - 新增 LICENSE（MIT，2026 Echo contributors）与 NOTICE（Compose/Kotlin/AndroidX/Apache-2.0 归属；Echo 名称/图标/视觉资产保留所有权利）。
 - README 重写：品牌边界、AI 辅助 AS IS、免费非商业但 MIT 允许任何用途、维护边界（不做云同步/账号/后端/广告/内购/非公开接口）、AOT 表述改为“profile 引导、机器码设备本地生成”。
-- 已知限制与进度同步：Markdown/LaTeX 渲染、单会话 Markdown 与全会话 ZIP 导出、README 八张实拍截图、导出文件名安全化、协议正确性（Sse.kt / maxTokens / message_stop 校验）、导入健壮性与兼容层文档（docs/protocol-compat.md）均已在 1.0.1 完成；1.0.2 修正导入文案口径并补完真 Key 冒烟（联网搜索 citations 全链路已打通，见 §4）；1.0.3 完成协议回归（抽 `buildChatBody`/`pumpSse` + `ProtocolTest` 15 例，总计 91 单测）与本地 CI 演练；1.0.4 重写 TTS 朗读（48 kHz 输出 + 24k→48k 升采样），1.0.5 修复 48k 播放缓冲超时导致的静音，并补横屏欢迎页、旋转不重建、输入草稿保留，以及落地外部审查 REVIEW-LOOP 第 1–6 轮修复（见 §4）。仍在路线图中的是：CI 在 GitHub 实跑（暂不发布）、旧 UI 三项收尾、COLOR-V3 五色强调色落地后的沙金增亮（1.0.6，用户反馈沙金偏暗、预设面板观感不佳）。
+- 已知限制与进度同步：Markdown/LaTeX 渲染、单会话 Markdown 与全会话 ZIP 导出、README 八张实拍截图、导出文件名安全化、协议正确性（Sse.kt / maxTokens / message_stop 校验）、导入健壮性与兼容层文档（docs/protocol-compat.md）均已在 1.0.1 完成；1.0.2 修正导入文案口径并补完真 Key 冒烟（联网搜索 citations 全链路已打通，见 §4）；1.0.3 完成协议回归（抽 `buildChatBody`/`pumpSse` + `ProtocolTest` 15 例，总计 91 单测）与本地 CI 演练；1.0.4 重写 TTS 朗读（48 kHz 输出 + 24k→48k 升采样），1.0.5 修复 48k 播放缓冲超时导致的静音，并补横屏欢迎页、旋转不重建、输入草稿保留，以及落地外部审查 REVIEW-LOOP 第 1–7 轮修复（见 §4）。仍在路线图中的是：CI 在 GitHub 实跑（暂不发布）、旧 UI 三项收尾、COLOR-V3 五色强调色落地后的沙金增亮（1.0.6，用户反馈沙金偏暗、预设面板观感不佳）。
 
 **说明**：本文第 3–5 节中标注 0.9.2 的性能/交互数据来自当时真机（app.xuxie）；1.0.0 仅变更身份与签名，代码行为未变，因此这些数据继续有效；1.0.5 的流式渲染与列表跟随改动及验证见 §3 与 REVIEW-LOOP 小节。

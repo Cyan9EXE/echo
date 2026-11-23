@@ -40,7 +40,7 @@
 
 ## 技术
 
-纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。27 个 Kotlin 文件、约 11,423 行：
+纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。27 个 Kotlin 文件、约 11,571 行：
 
     app/src/main/java/app/echo/
       MainActivity / EchoApp     入口与导航

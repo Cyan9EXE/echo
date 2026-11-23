@@ -155,12 +155,12 @@ TTS/ASR 与对话使用同一个 API Key、同一个账户；调用前弹计费�
 3. 用 scripts/mock_sse_server.py 做本地联调：normal / truncated / error_sse / 429 / 500 五种模式，默认 18080 端口。
 4. 同步更新本文件与 README.md 的能力/限制描述。
 5. 若涉及新的必填字段或错误码，先确认官方文档，再决定是否降级兼容（本应用目前只做容错，不做多版本协议适配）。
-6. 跑 `bash scripts/run_tests.sh --smoke`：编译 + JVM 单测（当前 109 例）+ mock SSE 自检 + 冒烟，全绿才算改完。
+6. 跑 `bash scripts/run_tests.sh --smoke`：编译 + JVM 单测（当前 112 例）+ mock SSE 自检 + 冒烟，全绿才算改完。
 
 ## 11. 版本与构建基线（与本协议相关）
 
 - applicationId / namespace：app.echo；旧包名 app.xuxie 已废弃（不同 applicationId 不能覆盖升级）。
-- minSdk 26 / compileSdk 35 / targetSdk 35；JDK 17；Gradle 8.9（仓库不含 wrapper 脚本，用系统安装的 Gradle 或 Android Studio）。
+- minSdk 26 / compileSdk 35 / targetSdk 35；JDK 17；Gradle 8.9（仓库内含 wrapper：`./gradlew`，distributionSha256Sum 固定）。
 - Kotlin 2.0.21、AGP 8.7.3、Compose BOM 2024.09.00。
 - 版本号唯一来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 6 / 1.0.5）。
 - 发布签名与证书指纹见 REVIEW.md；签名材料不入库。

@@ -14,18 +14,18 @@
 ## 2. 模块地图
 
 文件 | 职责 | 关键点
-MainActivity.kt（19） | 入口 | 只做 setContent
-EchoApp.kt（343） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
-ChatScreen.kt（449） | 会话页 | 上下文条、导出入口、复活横幅、摘要卡、贴底跟随滚动
-MessageViews.kt（367） | 消息渲染 | 思考折叠、流式光标、分块渲染、计费行、朗读入口、来源
+MainActivity.kt（28） | 入口 | 只做 setContent
+EchoApp.kt（346） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
+ChatScreen.kt（463） | 会话页 | 上下文条、导出入口、复活横幅、摘要卡、贴底跟随滚动
+MessageViews.kt（369） | 消息渲染 | 思考折叠、流式光标、分块渲染、计费行、朗读入口、来源
 Composer.kt（352） | 输入区 | 发送/暂停、深度思考/联网、模型标签、语音输入
 WelcomeScreen.kt（139） | 欢迎页 | 品牌 mark、继续上次、导入入口
 Drawer.kt（667） | 会话抽屉 | 标题/联想/内容搜索、对话保留面板、失效分组
 SettingsScreen.kt（603） | 设置与关于 | Key 显示保护、模型、最大输出、系统提示词、语音、外观、导入
 HelpDialogs.kt（517） | 答疑与引导 | 12 条 FAQ、4 级导入向导、通用计费确认
 UsageSheet.kt（224） | 用量与费用 | 官方余额、TTS/ASR 账本、生成花费
-State.kt（2029） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
-Models.kt（209） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
+State.kt（2138） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
+Models.kt（211） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
 Api.kt（268） | 网络与流式 | 请求体、SSE 读取循环、错误映射
 Sse.kt（73） | 协议解析 | 纯函数 parse(event, json)，可 JVM 单测
 Secret.kt（113） | KeyVault | Android Keystore + AES-256-GCM
@@ -33,16 +33,16 @@ Billing.kt（243） | 计费 | 价格常量、用量账本、余额接口
 Speech.kt（742） | 语音 | TTS 状态机与流式播放、ASR 录音与识别
 TtsAudio.kt（165） | 音频输出层 | 半带 FIR 升采样、AudioTrack 封装、播放尾等待（可 JVM 单测）
 Export.kt（580） | 导出引擎与面板 | 单会话 Markdown / 全会话 ZIP、会话页导出面板；已接入
-Design.kt（436） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:115）
+Design.kt（438） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:115）
 Theme.kt（371） | 主题 | 外观、强调色、Oklab 色阶与过渡
 ThemeSheet.kt（451） | 主题面板 | 预设、自定义底色、HSL 调色
 Glyphs.kt（300） | 图标字形 | 纯 Compose 绘制，不依赖图片资源
-Markdown.kt（1608） | Markdown / LaTeX 渲染 | 自研子集解析 + Compose 渲染、代码块与公式布局（流式稳定段增量解析、未闭合尾行按纯文本）
+Markdown.kt（1615） | Markdown / LaTeX 渲染 | 自研子集解析 + Compose 渲染、代码块与公式布局（流式稳定段增量解析、未闭合尾行按纯文本）
 Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（24） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 27 个 Kotlin 文件、约 11,423 行（随提交变化）。
+合计 27 个 Kotlin 文件、约 11,571 行（随提交变化）。
 
 ## 3. 状态与持久化
 
@@ -53,7 +53,7 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
     sessions.json           0.x 旧格式，仅在必要时迁移；迁移后改名 store/legacy-sessions.json.bak
 
 - 索引 IndexRow 字段：id / title / updatedAt / expired / revived / contextMode / summaryCovered / imported / pinned / costCny / roles / chars。列表分区、排序、搜索只读索引，不解析正文。
-- 写入：主线程只生成快照；io 线程用 writeAtomic（唯一临时文件名 `文件名.<nanoTime>.tmp` + flush / fsync + rename 原子替换）写 msg/<id>.json，索引行也在 io 线程构建后写 index.json。保存有防抖：正常模式 700ms、性能模式 260ms，dirtyIds 记录待写会话；写失败把 id 放回 dirtyIds、索引失败置 forceIndexNext 下次重试；停止生成是终态，立即 save() 而不是等防抖，思考流按 2s 节流 markDirty 落盘。charCount 增量维护，落盘时不再扫全文。
+- 写入：主线程只生成快照；io 线程用 writeAtomic（唯一临时文件名 `文件名.<nanoTime>.tmp` + flush / fsync + rename 原子替换）写 msg/<id>.json，索引行也在 io 线程构建后写 index.json，索引写入按 indexDirty 节流：结构变更立即写，流式文本增长最多每 30s 写一次。保存有防抖：正常模式 700ms、性能模式 260ms，dirtyIds 记录待写会话；写失败把 id 放回 dirtyIds、索引失败置 forceIndexNext 下次重试；停止生成是终态，立即 save() 而不是等防抖，思考流按 2s 节流 markDirty 落盘。charCount 增量维护，落盘时不再扫全文。
 - 启动：index.json 存在则 loadIndexAsync() 秒开列表；否则 migrateLegacyAsync() 把旧 sessions.json 拆成新格式。
 - 懒加载：MessageList 在 ready=false 时用 roleSeq 字符串撑出占位项；ensureReadyForUi() 对 ≤48KB 的快照在主线程同步解析并即时刷新，更大的快照不阻塞主线程：登记 parsingIds 后在 io 线程完成 JSON→消息列表与摘要解析（ParsedRecord），回主线程 applyParsedRecord 只发布结果（异步结果不会覆盖本地新消息，见 Models.markReady 守卫）；send / revive / retryLast 在正文未 ready 时只提示「稍候」，不再同步解析大会话；常驻内存会话上限 6 个（性能模式 12 个），按最近使用顺序淘汰。
 - 容错：writeAtomic 保证单文件不写半截；进程被杀最多丢最后一次防抖窗口内的增量；Key 解密失败按 lost 处理（删除损坏密文，仅内存可用）。
@@ -120,7 +120,7 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 ## 9. 渲染与性能策略
 
 - LazyColumn 的 key 优先用消息 id，未就绪时用 stub 索引；animateItem 全程启用，新插入可被中断。
-- 贴底跟随：followTail 是唯一开关（snapshotFlow 观察 isScrollInProgress，拖动暂停、回到底部恢复）；新消息插入后若最后可见项不再是尾项，先按 tailRescueIndex 把尾项滚入视口，之后 withFrameNanos 每帧计算内容末端与视口的 gap、>0 才 scrollBy。
+- 贴底跟随：followTail 由三处决定——用户拖动（interactionSource 的 DragInteraction.Start）暂停；滚动停止时用 shouldFollowTail（最后可见项是否已是尾项且末端 gap ≤2px）重算；发送成功时 sendTick 自增强制回底 sendScrollTarget(size-1)。流式中若最后可见项不再是尾项，先按 tailRescueIndex 把尾项滚入视口，之后 withFrameNanos 每帧计算内容末端与视口的 gap、>0 才 scrollBy；程序化滚动不产生 DragInteraction，不会被误判为用户上滑。
 - 流式正文：StreamSplit 只在代码围栏 / 块级公式之外的空行或围栏闭合处提交稳定段并增量解析；未闭合尾部按全文纯文本绘制（超过 2400 字符按 1200 字符分块、不切断代理对），全文段按字符串缓存跳过重复排版；回答完成后整体 Markdown 排版。思考流式只渲染尾部 1400 字，折叠时限制最大高度。
 - 抽屉：computeDrawerView 用 derivedStateOf 缓存分区、排序与搜索结果；内容搜索延迟 180ms 防抖后在 io 线程遍历，结果按标题命中/内容命中分组。
 - 主题：颜色是全局静态 token，切换时一次性写入 themeProgress / eyeProgress，不再逐帧插值全树（避免每个读色组件每帧重组）；过渡只在绘制阶段读取 alpha 做 180ms 淡入。
@@ -136,7 +136,7 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
 ## 11. 测试与验证
 
-- JVM 单测 109 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析与流式切段）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定与救援纯函数，5 例）。命令见 CONTRIBUTING.md。
+- JVM 单测 112 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段与 8K 单行扫描推进）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）。命令见 CONTRIBUTING.md。
 - 本地协议联调：scripts/mock_sse_server.py 提供 normal / truncated / error_sse / 429 / 500 五种模式，默认 18080 端口；debug 构建加 -PapiOrigin 指向它。
 - 构建验证：gradle :app:compileDebugKotlin（日常）；release 构建、签名与 Baseline Profile 见 README.md。
 - CI：.github/workflows/ci.yml（GitHub Actions）依次跑 Kotlin 编译、JVM 单测与 scripts/mock_sse_server.py --selftest，环境为 JDK 17 / Gradle 8.9 / Android SDK 35。
