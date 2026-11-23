@@ -18,6 +18,7 @@ class Msg(
     cacheReadTokens: Int = 0,
     cacheCreateTokens: Int = 0,
     thinkingMs: Long = 0L,
+    signature: String = "",
 ) {
     var text by mutableStateOf(text)
     var thinking by mutableStateOf(thinking)
@@ -29,6 +30,10 @@ class Msg(
     var costCny by mutableStateOf(0.0)
     var citations by mutableStateOf<List<Citation>>(emptyList())
     var failed by mutableStateOf(false)
+    /** Thinking signature for reasoning continuity; only set when the server sent one. */
+    var signature by mutableStateOf(signature)
+    /** Upstream stop_reason (end_turn / max_tokens / tool_use ...). */
+    var stopReason by mutableStateOf("")
 }
 
 internal data class MsgSnapshot(
@@ -45,6 +50,8 @@ internal data class MsgSnapshot(
     val costCny: Double,
     val citations: List<Citation> = emptyList(),
     val thinkingMs: Long = 0L,
+    val signature: String = "",
+    val stopReason: String = "",
 )
 
 data class SummaryBlock(

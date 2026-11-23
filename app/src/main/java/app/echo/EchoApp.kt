@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -265,19 +266,42 @@ fun EchoApp(state: AppState) {
                 UsageSheet(state, accent)
             }
             if (state.importing) {
+                // 站内全屏遮罩：BackHandler 吃掉返回键；pointerInput 吞掉全部触摸，
+                // 导入进行中只有「取消导入」能结束，点击/滑动都不会穿透到背后页面。
+                BackHandler {}
                 Box(
-                    Modifier.fillMaxSize().background(C.Scrim),
+                    Modifier
+                        .fillMaxSize()
+                        .background(C.Scrim)
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent().changes.forEach { it.consume() }
+                                }
+                            }
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Surface(color = C.Panel, shape = RoundedCornerShape(18.dp)) {
-                        Column(Modifier.padding(horizontal = 28.dp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = accent, modifier = Modifier.size(30.dp))
-                            Spacer(Modifier.height(14.dp))
-                            Text("正在导入历史对话", color = C.Ivory, fontSize = 14.sp)
-                            Spacer(Modifier.height(4.dp))
-                            Text(state.importStatus, color = C.Muted, fontSize = 11.sp)
+                        Surface(color = C.Panel, shape = RoundedCornerShape(18.dp)) {
+                            Column(Modifier.padding(horizontal = 28.dp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(color = accent, modifier = Modifier.size(30.dp))
+                                Spacer(Modifier.height(14.dp))
+                                Text("正在导入历史对话", color = C.Ivory, fontSize = 14.sp)
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    (state.importProgress * 100).toInt().toString() + "% · " + state.importStatus,
+                                    color = C.Muted, fontSize = 11.sp,
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Pressable(onClick = { state.cancelImport() }) {
+                                    Text(
+                                        "取消导入",
+                                        color = C.Muted, fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    )
+                                }
+                            }
                         }
-                    }
                 }
             }
             LaunchedEffect(state.notice) {

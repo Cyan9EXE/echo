@@ -11,13 +11,21 @@ import java.net.URL
 
 class ApiException(val code: Int, val body: String) : Exception("HTTP " + code + ": " + body.take(300))
 
-data class ApiMsg(val role: String, val content: String)
+/** One chat message sent upstream. [signature] is the thinking signature for assistant turns. */
+data class ApiMsg(
+    val role: String,
+    val content: String,
+    val thinking: String = "",
+    val signature: String = "",
+)
 
 data class ApiUsage(
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
     val cacheReadTokens: Int = 0,
     val cacheCreateTokens: Int = 0,
+    /** true when this usage is the complete final report (message_delta), not a prefill. */
+    val full: Boolean = false,
 )
 
 data class Citation(val url: String, val title: String)
@@ -59,6 +67,9 @@ object ApiClient {
 
     private const val FLUSH_INTERVAL_MS = 60L
     private const val FLUSH_BYTES = 8192
+    const val DEFAULT_MAX_TOKENS = 32_768
+    const val MIN_MAX_TOKENS = 4_096
+    const val MAX_MAX_TOKENS = 65_536
 
     fun stream(
         apiKey: String,
@@ -67,10 +78,13 @@ object ApiClient {
         webSearch: Boolean = false,
         systemPrompt: String? = null,
         messages: List<ApiMsg>,
+        maxTokens: Int = DEFAULT_MAX_TOKENS,
         flushMs: Int = 60,
         onText: (String) -> Unit,
         onThinking: (String) -> Unit,
+        onSignature: ((String) -> Unit)? = null,
         onUsage: (ApiUsage) -> Unit,
+        onStopReason: ((String) -> Unit)? = null,
         onCitation: ((Citation) -> Unit)? = null,
         onError: (String) -> Unit,
         onDone: (cancelled: Boolean) -> Unit,
@@ -110,7 +124,7 @@ object ApiClient {
                 conn.setRequestProperty("accept-encoding", "identity")
                 val body = JSONObject().apply {
                     put("model", model)
-                    put("max_tokens", 8192)
+                    put("max_tokens", maxTokens.coerceIn(MIN_MAX_TOKENS, MAX_MAX_TOKENS))
                     put("stream", true)
                     put("thinking", JSONObject().put("type", if (thinking) "enabled" else "disabled"))
                     if (webSearch) {
@@ -128,7 +142,22 @@ object ApiClient {
                     messages.forEach { m ->
                         arr.put(JSONObject().apply {
                             put("role", m.role)
-                            put("content", m.content)
+                            // Reasoning continuity: an assistant turn with a stored signature is
+                            // replayed as a thinking block + text block so the model can verify
+                            // the chain of thought it produced (required by extended thinking).
+                            if (m.role == "assistant" && m.signature.isNotBlank() && m.thinking.isNotBlank()) {
+                                put("content", JSONArray().apply {
+                                    put(
+                                        JSONObject()
+                                            .put("type", "thinking")
+                                            .put("thinking", m.thinking)
+                                            .put("signature", m.signature),
+                                    )
+                                    put(JSONObject().put("type", "text").put("text", m.content))
+                                })
+                            } else {
+                                put("content", m.content)
+                            }
                         })
                     }
                     put("messages", arr)
@@ -144,21 +173,24 @@ object ApiClient {
                 val reader = conn.inputStream.reader(Charsets.UTF_8).buffered(32 * 1024)
                 var event = ""
                 val data = StringBuilder(256)
-                var inputTokens = 0
-                var outputTokens = 0
-                var cacheRead = 0
-                var cacheCreate = 0
+                var gotMessageStop = false
                 while (true) {
                     if (handle.cancelled) break
                     val line = reader.readLine() ?: break
                     if (line.isEmpty()) {
                         if (data.isNotEmpty()) {
                             val raw = data.toString()
-                            parseEvent(event, raw, textBuf, thinkBuf, onCitation ?: {}) {
-                                inputTokens = maxOf(inputTokens, it.inputTokens)
-                                outputTokens = maxOf(outputTokens, it.outputTokens)
-                                cacheRead = maxOf(cacheRead, it.cacheReadTokens)
-                                cacheCreate = maxOf(cacheCreate, it.cacheCreateTokens)
+                            for (ev in Sse.parse(event, raw)) {
+                                when (ev) {
+                                    is StreamEvent.Text -> textBuf.append(ev.text)
+                                    is StreamEvent.Thinking -> thinkBuf.append(ev.text)
+                                    is StreamEvent.Signature -> main.post { onSignature?.invoke(ev.signature) }
+                                    is StreamEvent.CitationFound -> main.post { onCitation?.invoke(ev.citation) }
+                                    is StreamEvent.Usage -> main.post { onUsage(ev.usage.copy(full = ev.full)) }
+                                    is StreamEvent.StopReason -> main.post { onStopReason?.invoke(ev.reason) }
+                                    StreamEvent.Stop -> gotMessageStop = true
+                                    is StreamEvent.Failure -> textBuf.append("\n\n[错误] ").append(ev.message)
+                                }
                             }
                             event = ""
                             data.setLength(0)
@@ -175,9 +207,15 @@ object ApiClient {
                     }
                 }
                 flush()
-                main.post {
-                    onUsage(ApiUsage(inputTokens, outputTokens, cacheRead, cacheCreate))
-                    onDone(false)
+                if (!handle.cancelled && !gotMessageStop) {
+                    // The server hung up mid-stream. Content is kept, but the turn is marked
+                    // failed so the UI offers retry instead of pretending it completed.
+                    main.post {
+                        onError("连接提前结束：没有收到 message_stop，内容可能不完整。")
+                        onDone(false)
+                    }
+                } else {
+                    main.post { onDone(handle.cancelled) }
                 }
             } catch (e: Exception) {
                 flush()
@@ -197,49 +235,5 @@ object ApiClient {
             }
         }.start()
         return handle
-    }
-
-    private inline fun parseEvent(
-        event: String,
-        json: String,
-        textBuf: StringBuilder,
-        thinkBuf: StringBuilder,
-        noinline onCitation: (Citation) -> Unit,
-        onUsage: (ApiUsage) -> Unit,
-    ) {
-        if (json.isEmpty()) return
-        val obj = runCatching { JSONObject(json) }.getOrNull() ?: return
-        when (event.ifEmpty { obj.optString("type") }) {
-            "content_block_delta" -> {
-                val delta = obj.optJSONObject("delta") ?: return
-                when (delta.optString("type")) {
-                    "text_delta" -> delta.optString("text").takeIf { it.isNotEmpty() }?.let { textBuf.append(it) }
-                    "thinking_delta" -> delta.optString("thinking").takeIf { it.isNotEmpty() }?.let { thinkBuf.append(it) }
-                    "citations_delta" -> {
-                        val c = delta.optJSONObject("citation") ?: return
-                        val url = c.optString("url")
-                        if (url.isNotBlank()) onCitation(Citation(url, c.optString("title")))
-                    }
-                }
-            }
-            "message_start" -> {
-                val u = obj.optJSONObject("message")?.optJSONObject("usage") ?: return
-                onUsage(
-                    ApiUsage(
-                        inputTokens = u.optInt("input_tokens", 0),
-                        cacheReadTokens = u.optInt("cache_read_input_tokens", 0),
-                        cacheCreateTokens = u.optInt("cache_creation_input_tokens", 0),
-                    )
-                )
-            }
-            "message_delta" -> {
-                val u = obj.optJSONObject("usage") ?: return
-                onUsage(ApiUsage(outputTokens = u.optInt("output_tokens", 0)))
-            }
-            "error" -> {
-                val message = obj.optJSONObject("error")?.optString("message") ?: "生成失败"
-                textBuf.append("\n\n[错误] ").append(message)
-            }
-        }
     }
 }

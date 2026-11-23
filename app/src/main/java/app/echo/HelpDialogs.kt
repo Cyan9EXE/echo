@@ -222,7 +222,8 @@ internal fun ImportGuide(
                             )
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                "导入会覆盖本机现有对话和附件，不会上传，也不动官方账号里的数据；建议先保留原始 ZIP。" +
+                                "导入会合并到本机现有对话：会话 ID 相同的会跳过，不覆盖本机已有内容；附件与图片不会导入。" +
+                                    "不会上传，也不动官方账号里的数据；建议先保留原始 ZIP。" +
                                     "ZIP 获取：官方 App/网页 → 设置 → 账号 → 导出数据。",
                                 color = C.Muted, fontSize = 11.sp, lineHeight = 17.sp,
                             )

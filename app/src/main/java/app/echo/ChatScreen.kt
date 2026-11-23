@@ -42,13 +42,67 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.conflate
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun ChatScreen(state: AppState, accent: Color) {
     val s = state.current ?: return
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var exportMenu by remember { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
+    var pendingMarkdown by remember { mutableStateOf<ExportSession?>(null) }
+    var pendingZipHeaders by remember { mutableStateOf<List<ExportHeader>>(emptyList()) }
+    var pendingZipLive by remember { mutableStateOf<Map<String, ExportSession>>(emptyMap()) }
+
+    val markdownLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/markdown"),
+    ) { uri ->
+        val snap = pendingMarkdown
+        pendingMarkdown = null
+        if (uri == null || snap == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            if (exporting) return@launch
+            exporting = true
+            state.notice = "正在导出 Markdown…"
+            state.notice = runCatching { withContext(Dispatchers.IO) { exportSessionToUri(context, uri, snap) } }
+                .fold(
+                    onSuccess = { "已导出 Markdown（" + it.entries + " 条记录）" },
+                    onFailure = { "导出失败：" + (it.message ?: "无法写入所选位置") },
+                )
+            exporting = false
+        }
+    }
+
+    val zipLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        val headers = pendingZipHeaders
+        val live = pendingZipLive
+        pendingZipHeaders = emptyList()
+        pendingZipLive = emptyMap()
+        if (uri == null || headers.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            if (exporting) return@launch
+            exporting = true
+            state.notice = "正在导出 " + headers.size + " 个会话…"
+            state.notice = runCatching { withContext(Dispatchers.IO) { exportAllToUri(context, uri, headers, live) } }
+                .fold(
+                    onSuccess = { "已导出 " + headers.size + " 个会话的 ZIP" },
+                    onFailure = { "导出失败：" + (it.message ?: "无法写入所选位置") },
+                )
+            exporting = false
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         TopBar(state, accent, s.title, onBack = state::backHome)
-        ContextBar(state, accent)
+        ContextBar(state, accent, onExport = { exportMenu = true })
         if (s.expired && !s.revived) RevivalBanner(state, s, accent)
         if (s.revived && s.contextMode == "summary" && s.summary.isNotBlank()) {
             SummaryCard(state, s, accent)
@@ -114,6 +168,35 @@ internal fun ChatScreen(state: AppState, accent: Color) {
             }
         }
         Composer(state, accent)
+    }
+    if (exportMenu) {
+        ExportSheet(
+            accent = accent,
+            sessionTitle = s.title,
+            messageCount = s.messages.size,
+            sessionCount = state.sessions.size,
+            onExportSession = {
+                exportMenu = false
+                val snap = snapshotSession(s)
+                if (snap == null) {
+                    state.notice = "会话内容还在加载，请稍候再导出"
+                } else {
+                    pendingMarkdown = snap
+                    markdownLauncher.launch(suggestMarkdownFileName(snap.header))
+                }
+            },
+            onExportAll = {
+                exportMenu = false
+                pendingZipHeaders = state.sessions.map { headerOf(it) }
+                pendingZipLive = snapshotSession(s)?.let { mapOf(it.header.id to it) } ?: emptyMap()
+                if (pendingZipHeaders.isEmpty()) {
+                    state.notice = "本机还没有可导出的会话"
+                } else {
+                    zipLauncher.launch(suggestZipFileName())
+                }
+            },
+            onClose = { exportMenu = false },
+        )
     }
 }
 
@@ -282,7 +365,7 @@ internal fun RevivalBanner(state: AppState, s: Session, accent: Color) {
 }
 
 @Composable
-internal fun ContextBar(state: AppState, accent: Color) {
+internal fun ContextBar(state: AppState, accent: Color, onExport: () -> Unit = {}) {
     val s = state.current
     val tokens = state.contextTokens
     LaunchedEffect(state.streaming, s?.id) {
@@ -316,6 +399,8 @@ internal fun ContextBar(state: AppState, accent: Color) {
                     "上下文为本地估算，只统计会进入请求的原文，不额外消耗 token。"
                 }
             })
+            Spacer(Modifier.width(8.dp))
+            Text("导出", color = C.Muted, fontSize = 10.sp, modifier = Modifier.clickable(onClick = onExport))
         }
         Spacer(Modifier.height(6.dp))
     }

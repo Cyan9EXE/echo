@@ -37,7 +37,7 @@ object Billing {
 
     fun asrMaxCost(): Double = ceil(asrCost(ASR_MAX_SECONDS) * 100.0) / 100.0
 
-    fun ceilCny(v: Double): Double = ceil(v * 100.0 - 1e-9) / 100.0
+    fun ceilCny(v: Double): Double = if (v <= 0.0) 0.0 else ceil(v * 100.0 - 1e-9) / 100.0
 
     fun quote(v: Double): String = "¥" + String.format(Locale.CHINA, "%.2f", ceilCny(v))
 

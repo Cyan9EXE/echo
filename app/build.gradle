@@ -50,6 +50,10 @@ android {
     }
     kotlinOptions { jvmTarget = '17' }
 
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
     buildTypes {
         release {
             // Aggressive code + resource shrinking; full mode lets R8 remove more
@@ -81,4 +85,9 @@ dependencies {
     // Profile is generated on-device by the official AndroidX baselineprofile
     // plugin (the :baselineprofile macrobenchmark module), not hand-written.
     baselineProfile project(':baselineprofile')
+
+    // JVM-only unit tests: plain JUnit4, coroutines test helpers and real org.json.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1'
+    testImplementation 'org.json:json:20240303'
 }

@@ -4,6 +4,7 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -15,6 +16,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -72,6 +74,12 @@ class AppState(private val context: Context) {
         private set
     var webSearch by mutableStateOf(prefs.getBoolean("webSearch", false))
         private set
+    /** Output ceiling per request. Defaults to 32K; users can lower it to save tokens. */
+    var maxTokens by mutableStateOf(
+        prefs.getInt("maxTokens", ApiClient.DEFAULT_MAX_TOKENS)
+            .coerceIn(ApiClient.MIN_MAX_TOKENS, ApiClient.MAX_MAX_TOKENS),
+    )
+        private set
     var systemPrompt by mutableStateOf(prefs.getString("systemPrompt", "").orEmpty())
         private set
     // 0..C.skins.lastIndex = preset skin, C.skins.size = custom accent colour.
@@ -116,6 +124,9 @@ class AppState(private val context: Context) {
         private set
     var importStatus by mutableStateOf("")
         private set
+    var importProgress by mutableStateOf(0f)
+        private set
+    private var importCancelled = false
     var revision by mutableStateOf(0)
     var currentId by mutableStateOf<String?>(null)
         private set
@@ -202,6 +213,11 @@ class AppState(private val context: Context) {
     fun updateThinking(value: Boolean) {
         thinking = value
         prefs.edit().putBoolean("thinking", value).apply()
+    }
+
+    fun updateMaxTokens(value: Int) {
+        maxTokens = value.coerceIn(ApiClient.MIN_MAX_TOKENS, ApiClient.MAX_MAX_TOKENS)
+        prefs.edit().putInt("maxTokens", maxTokens).apply()
     }
 
     fun updatePerformanceMode(value: Boolean) {
@@ -446,7 +462,7 @@ class AppState(private val context: Context) {
         scheduleSave()
 
         val includeSystem = systemPrompt.isNotBlank() && !session.systemSent
-        val history = buildHistory(session)
+        val history = buildHistory(session, thinking)
         val sessionId = session.id
         streamSessionId = sessionId
         val mySeq = ++streamSeq
@@ -470,6 +486,7 @@ class AppState(private val context: Context) {
             webSearch = webSearch,
             systemPrompt = if (includeSystem) systemPrompt.trim() else null,
             messages = history,
+            maxTokens = maxTokens,
             flushMs = if (performanceMode) 45 else 60,
             onText = { chunk ->
                 if (mySeq == streamSeq) {
@@ -495,14 +512,27 @@ class AppState(private val context: Context) {
                     reply.citations = citations.toList()
                 }
             },
+            onSignature = { sig ->
+                if (mySeq == streamSeq) reply.signature = sig
+            },
+            onStopReason = { reason ->
+                if (mySeq == streamSeq) reply.stopReason = reason
+            },
             onUsage = { u ->
                 if (mySeq == streamSeq) {
-                    // 合并而不是覆盖：message_start 给输入侧、message_delta 只给输出侧。
                     val input = u.inputTokens + u.cacheReadTokens + u.cacheCreateTokens
-                    if (input > 0) reply.inputTokens = maxOf(reply.inputTokens, input)
-                    if (u.outputTokens > 0) reply.outputTokens = maxOf(reply.outputTokens, u.outputTokens)
-                    if (u.cacheReadTokens > 0) reply.cacheReadTokens = u.cacheReadTokens
-                    if (u.cacheCreateTokens > 0) reply.cacheCreateTokens = u.cacheCreateTokens
+                    if (u.full) {
+                        // message_delta 若带全量 usage，以它为准（覆盖 message_start 的预填值）。
+                        if (input > 0) reply.inputTokens = input
+                        if (u.outputTokens > 0) reply.outputTokens = u.outputTokens
+                        if (u.cacheReadTokens > 0) reply.cacheReadTokens = u.cacheReadTokens
+                        if (u.cacheCreateTokens > 0) reply.cacheCreateTokens = u.cacheCreateTokens
+                    } else {
+                        if (input > 0) reply.inputTokens = maxOf(reply.inputTokens, input)
+                        if (u.outputTokens > 0) reply.outputTokens = maxOf(reply.outputTokens, u.outputTokens)
+                        if (u.cacheReadTokens > 0) reply.cacheReadTokens = u.cacheReadTokens
+                        if (u.cacheCreateTokens > 0) reply.cacheCreateTokens = u.cacheCreateTokens
+                    }
                 }
             },
             onError = { message ->
@@ -539,6 +569,9 @@ class AppState(private val context: Context) {
                         notice = "已暂停生成；已保留当前内容。"
                     } else {
                         if (reply.text.isBlank()) reply.text = "（没有收到内容）"
+                        if (reply.stopReason == "max_tokens") {
+                            notice = "已达到最大输出长度（可在设置里调高上限）。"
+                        }
                         finishUsage(session, reply)
                     }
                     markDirty(sessionId)
@@ -604,10 +637,17 @@ class AppState(private val context: Context) {
     private fun historyMessages(session: Session): List<Msg> =
         session.messages.filter { it.text.isNotBlank() && (it.role == "user" || it.role == "assistant") }
 
-    private fun buildHistory(session: Session): List<ApiMsg> {
+    private fun buildHistory(session: Session, thinking: Boolean): List<ApiMsg> {
         val all = historyMessages(session)
+        fun apiMsg(m: Msg): ApiMsg =
+            if (thinking && m.role == "assistant" && m.signature.isNotBlank()) {
+                // 回传 thinking 签名，保证多轮推理链可被官方校验。
+                ApiMsg(m.role, m.text, m.thinking, m.signature)
+            } else {
+                ApiMsg(m.role, m.text)
+            }
         if (session.contextMode != "summary" || session.summary.isBlank()) {
-            return all.map { ApiMsg(it.role, it.text) }
+            return all.map(::apiMsg)
         }
         val tail = all.drop(session.summaryCovered.coerceIn(0, all.size)).toMutableList()
         val firstUser = tail.indexOfFirst { it.role == "user" }
@@ -621,7 +661,7 @@ class AppState(private val context: Context) {
                 time = merged.time,
             )
         }
-        return tail.map { ApiMsg(it.role, it.text) }
+        return tail.map(::apiMsg)
     }
 
     fun summaryBlockMessages(session: Session, block: SummaryBlock): List<Msg> {
@@ -895,6 +935,8 @@ class AppState(private val context: Context) {
                     costCny = m.costCny,
                     citations = m.citations.toList(),
                     thinkingMs = m.thinkingMs,
+                    signature = m.signature,
+                    stopReason = m.stopReason,
                 ),
             )
         }
@@ -986,6 +1028,8 @@ class AppState(private val context: Context) {
         costCny: Double,
         citations: List<Citation>,
         thinkingMs: Long,
+        signature: String,
+        stopReason: String,
     ): JSONObject = JSONObject().apply {
         put("id", id)
         put("role", role)
@@ -999,6 +1043,8 @@ class AppState(private val context: Context) {
         put("cacheCreateTokens", cacheCreateTokens)
         put("costCny", costCny)
         put("thinkingMs", thinkingMs)
+        if (signature.isNotBlank()) put("signature", signature)
+        if (stopReason.isNotBlank()) put("stopReason", stopReason)
         put(
             "citations",
             JSONArray().apply {
@@ -1033,7 +1079,7 @@ class AppState(private val context: Context) {
                 msgJson(
                     m.id, m.role, m.text, m.thinking, m.model, m.time,
                     m.inputTokens, m.outputTokens, m.cacheReadTokens, m.cacheCreateTokens,
-                    m.costCny, m.citations, m.thinkingMs,
+                    m.costCny, m.citations, m.thinkingMs, m.signature, m.stopReason,
                 ),
             )
         }
@@ -1055,7 +1101,7 @@ class AppState(private val context: Context) {
                 msgJson(
                     m.id, m.role, m.text, m.thinking, m.model, m.time,
                     m.inputTokens, m.outputTokens, m.cacheReadTokens, m.cacheCreateTokens,
-                    m.costCny, m.citations, m.thinkingMs,
+                    m.costCny, m.citations, m.thinkingMs, m.signature, m.stopReason,
                 ),
             )
         }
@@ -1220,9 +1266,11 @@ class AppState(private val context: Context) {
                 cacheReadTokens = m.optInt("cacheReadTokens", 0),
                 cacheCreateTokens = m.optInt("cacheCreateTokens", 0),
                 thinkingMs = m.optLong("thinkingMs", 0L),
+                signature = m.optString("signature"),
             ).also {
                 it.costCny = m.optDouble("costCny", 0.0)
                 it.citations = readCitations(m)
+                it.stopReason = m.optString("stopReason")
             })
         }
         s.messages.markReady(list)
@@ -1335,6 +1383,8 @@ class AppState(private val context: Context) {
             var cacheCreate = 0
             var costCny = 0.0
             var thinkingMs = 0L
+            var signature = ""
+            var stopReason = ""
             r.beginObject()
             while (r.hasNext()) {
                 when (r.nextName()) {
@@ -1350,6 +1400,8 @@ class AppState(private val context: Context) {
                     "cacheCreateTokens" -> cacheCreate = nextIntLoose(r)
                     "costCny" -> costCny = nextDoubleLoose(r)
                     "thinkingMs" -> thinkingMs = nextLongLoose(r)
+                    "signature" -> signature = nextStringLoose(r)
+                    "stopReason" -> stopReason = nextStringLoose(r)
                     else -> r.skipValue()
                 }
             }
@@ -1368,7 +1420,11 @@ class AppState(private val context: Context) {
                     cacheReadTokens = cacheRead,
                     cacheCreateTokens = cacheCreate,
                     thinkingMs = thinkingMs,
-                ).also { it.costCny = costCny },
+                    signature = signature,
+                ).also {
+                    it.costCny = costCny
+                    it.stopReason = stopReason
+                },
             )
         }
         r.endArray()
@@ -1440,6 +1496,8 @@ class AppState(private val context: Context) {
                 put("cacheCreateTokens", m.cacheCreateTokens)
                 put("costCny", m.costCny)
                 put("thinkingMs", m.thinkingMs)
+                if (m.signature.isNotBlank()) put("signature", m.signature)
+                if (m.stopReason.isNotBlank()) put("stopReason", m.stopReason)
             })
         }
         o.put("messages", arr)
@@ -1452,51 +1510,139 @@ class AppState(private val context: Context) {
         return runCatching { appContext.contentResolver.openInputStream(uri) }.getOrNull()
     }
 
+    private val importMaxSessionBytes = 24L * 1024 * 1024
+    private val importMaxSessions = 20_000
+    private val importMaxEntries = 60_000
+    private val importMaxZipBytes = 2L * 1024 * 1024 * 1024
+
+    fun cancelImport() {
+        if (!importing) return
+        importCancelled = true
+        importStatus = "正在取消…"
+    }
+
     fun importZip(uri: Uri) {
         if (importing) return
         importing = true
+        importCancelled = false
+        importProgress = 0f
         importStatus = "正在读取 ZIP…"
         io.execute {
+            val parsed = ArrayList<Session>()
+            val failed = ArrayList<String>()
+            val written = ArrayList<String>()
+            var duplicates = 0
+            var sessionEntries = 0
             try {
-                val parsed = ArrayList<Session>()
-                contentResolverStream(uri)?.use { input ->
-                    ZipInputStream(input.buffered()).use { zip ->
+                val totalBytes = contentSize(uri)
+                if (totalBytes > importMaxZipBytes) {
+                    throw java.io.IOException("ZIP 超过 2GB 上限，无法导入。")
+                }
+                val raw = contentResolverStream(uri)
+                    ?: throw java.io.IOException("无法打开所选文件，请重新选择。")
+                val counting = CountingInputStream(raw)
+                java.io.BufferedInputStream(counting, 64 * 1024).use { input ->
+                    ZipInputStream(input).use { zip ->
+                        val knownIds = sessions.mapTo(HashSet()) { it.id }
+                        var entries = 0
                         while (true) {
+                            if (importCancelled) break
                             val entry = zip.nextEntry ?: break
+                            entries++
+                            if (entries > importMaxEntries) {
+                                throw java.io.IOException("ZIP 内文件过多，已停止导入。")
+                            }
                             val name = entry.name
-                            if (!entry.isDirectory &&
-                                name != null &&
-                                name.startsWith("chat_sessions/") &&
-                                name.endsWith(".json")
-                            ) {
-                                val bytes = zip.readBytes()
-                                val s = parseSession(bytes)
-                                if (s != null) {
-                                    runCatching { writeAtomic(msgFile(s.id), serializeSession(s)) }
-                                    s.messages.unload()
-                                    parsed.add(s)
-                                    if (parsed.size % 25 == 0) {
-                                        val n = parsed.size
-                                        main.post { importStatus = "已解析 " + n + " 个会话…" }
-                                    }
-                                }
+                            if (entry.isDirectory || name == null) {
+                                zip.closeEntry()
+                                continue
+                            }
+                            if (!name.startsWith("chat_sessions/") || !name.endsWith(".json")) {
+                                zip.closeEntry()
+                                continue
+                            }
+                            sessionEntries++
+                            if (sessionEntries > importMaxSessions) {
+                                throw java.io.IOException("会话数量超过上限（" + importMaxSessions + " 个）。")
+                            }
+                            val shortName = name.substringAfterLast('/')
+                            val s = try {
+                                parseSession(readLimited(zip, importMaxSessionBytes))
+                            } catch (e: Exception) {
+                                failed.add(shortName)
+                                zip.closeEntry()
+                                continue
                             }
                             zip.closeEntry()
+                            if (s == null) {
+                                failed.add(shortName)
+                                continue
+                            }
+                            if (!knownIds.add(s.id)) {
+                                duplicates++
+                                s.messages.unload()
+                                continue
+                            }
+                            val ok = runCatching { writeAtomic(msgFile(s.id), serializeSession(s)) }.isSuccess
+                            if (ok) {
+                                written.add(s.id)
+                                s.messages.unload()
+                                parsed.add(s)
+                            } else {
+                                knownIds.remove(s.id)
+                                failed.add(shortName)
+                            }
+                            if (sessionEntries % 25 == 0) {
+                                val p = if (totalBytes > 0L) {
+                                    (counting.bytes.toDouble() / totalBytes).coerceIn(0.0, 1.0)
+                                } else 0.0
+                                val n = parsed.size
+                                val ui = (0.08 + p * 0.84).toFloat()
+                                main.post {
+                                    importProgress = ui
+                                    importStatus = "已解析 " + n + " 个会话…"
+                                }
+                            }
                         }
                     }
                 }
-                main.post { finalizeImport(parsed) }
+                if (importCancelled) {
+                    for (id in written) runCatching { msgFile(id).delete() }
+                    main.post {
+                        importing = false
+                        importProgress = 0f
+                        importStatus = ""
+                        notice = "已取消导入，未写入任何会话。"
+                    }
+                    return@execute
+                }
+                if (sessionEntries == 0) {
+                    main.post {
+                        importing = false
+                        importProgress = 0f
+                        importStatus = ""
+                        notice = "这个 ZIP 里没有 chat_sessions 文件夹，可能不是 DeepSeek 官方导出的数据。"
+                    }
+                    return@execute
+                }
+                main.post {
+                    importProgress = 0.95f
+                    importStatus = "正在整理会话…"
+                }
+                main.post { finalizeImport(parsed, failed, duplicates) }
             } catch (e: Exception) {
+                for (id in written) runCatching { msgFile(id).delete() }
                 main.post {
                     importing = false
+                    importProgress = 0f
                     importStatus = ""
-                    notice = "导入失败：" + (e.message ?: "ZIP 无法读取")
+                    notice = "导入失败：" + importErrorText(e)
                 }
             }
         }
     }
 
-    private fun finalizeImport(parsed: List<Session>) {
+    private fun finalizeImport(parsed: List<Session>, failed: List<String>, duplicates: Int) {
         val existingIds = sessions.map { it.id }.toMutableSet()
         val fresh = parsed.filter { existingIds.add(it.id) }
         val merged = (sessions + fresh).sortedByDescending { it.updatedAt }
@@ -1506,12 +1652,51 @@ class AppState(private val context: Context) {
         }
         invalidateCurrent()
         importing = false
+        importProgress = 0f
         importStatus = ""
         refreshContextTokens()
         revision++
-        notice = "已导入 " + fresh.size + " 个会话；超过 7 天未活跃的会话标为「已失效」，可逐条复活。"
+        notice = buildString {
+            if (fresh.isEmpty()) append("没有新增会话") else append("已导入 ").append(fresh.size).append(" 个会话")
+            if (duplicates > 0) append("，跳过 ").append(duplicates).append(" 个已存在的会话")
+            if (failed.isNotEmpty()) {
+                append("，").append(failed.size).append(" 个文件无法解析")
+                if (failed.size <= 3) append("（").append(failed.joinToString("、")).append("）")
+            }
+            append("；超过 7 天未活跃的会话标为「已失效」，可逐条复活。")
+        }
         val indexJson = buildIndexJson()
         io.execute { writeAtomic(indexFile, indexJson) }
+    }
+
+    private fun contentSize(uri: Uri): Long = runCatching {
+        appContext.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (!c.moveToFirst()) return@use 0L
+            val idx = c.getColumnIndex(OpenableColumns.SIZE)
+            if (idx >= 0 && !c.isNull(idx)) c.getLong(idx) else 0L
+        } ?: 0L
+    }.getOrDefault(0L)
+
+    private fun readLimited(input: java.io.InputStream, limit: Long): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(16 * 1024)
+        var total = 0L
+        while (total < limit) {
+            val want = minOf(buf.size.toLong(), limit - total).toInt()
+            val n = input.read(buf, 0, want)
+            if (n <= 0) break
+            out.write(buf, 0, n)
+            total += n
+        }
+        if (total >= limit && input.read() >= 0) throw java.io.IOException("会话文件超过单文件大小上限")
+        return out.toByteArray()
+    }
+
+    private fun importErrorText(e: Exception): String = when (e) {
+        is java.util.zip.ZipException -> "ZIP 无法读取或已损坏，请确认选择的是官方导出的 .zip 文件。"
+        is java.io.EOFException -> "ZIP 内容不完整，可能下载时被截断，请重新导出后再试。"
+        is SecurityException -> "没有读取该文件的权限，请重新选择文件。"
+        else -> e.message ?: "ZIP 无法读取"
     }
 
     private fun parseSession(bytes: ByteArray): Session? {
@@ -1631,4 +1816,24 @@ class AppState(private val context: Context) {
             costCny = costCny,
         ).also { it.charCount = messages.sumOf { m -> m.text.length.toLong() } }
     }
+}
+
+
+private class CountingInputStream(private val inner: java.io.InputStream) : java.io.InputStream() {
+    var bytes: Long = 0L
+        private set
+
+    override fun read(): Int {
+        val b = inner.read()
+        if (b >= 0) bytes++
+        return b
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        val n = inner.read(b, off, len)
+        if (n > 0) bytes += n
+        return n
+    }
+
+    override fun close() = inner.close()
 }

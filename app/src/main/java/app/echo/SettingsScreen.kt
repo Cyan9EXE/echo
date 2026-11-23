@@ -302,6 +302,32 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                         colors = SwitchDefaults.colors(checkedThumbColor = C.Void, checkedTrackColor = accent, uncheckedThumbColor = C.Muted, uncheckedTrackColor = C.PanelHigh),
                     )
                 }
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("最大输出", color = C.Ivory, fontSize = 14.sp)
+                        Text("单次回复上限；调低可控制费用，调高适合长文", color = C.Muted, fontSize = 10.sp)
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(8192 to "8K", 16384 to "16K", 32768 to "32K", 65536 to "64K").forEach { (value, label) ->
+                        val on = state.maxTokens == value
+                        Pressable(
+                            onClick = { state.updateMaxTokens(value) },
+                            shape = RoundedCornerShape(9.dp),
+                            scale = .95f,
+                            description = "最大输出：" + label,
+                        ) {
+                            Box(
+                                Modifier
+                                    .background(if (on) accent.copy(alpha = .16f) else Color.Transparent, RoundedCornerShape(9.dp))
+                                    .border(1.dp, if (on) accent else C.Hair, RoundedCornerShape(9.dp))
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                            ) { Text(label, color = if (on) accent else C.Muted, fontSize = 10.sp) }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(18.dp))
                 Text("运行模式", color = C.Muted, fontSize = 11.sp)
                 Spacer(Modifier.height(8.dp))

@@ -1,7 +1,6 @@
 package app.echo
 
 import android.content.ClipData
-import kotlinx.coroutines.delay
 import kotlin.math.abs
 import android.content.ClipboardManager
 import android.content.Context
@@ -14,10 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
@@ -296,44 +291,6 @@ internal fun ThinkingBlock(m: Msg, accent: Color, live: Boolean) {
     }
 }
 
-// Split only at boundaries that are already final, so prepending a new tail
-// never changes earlier chunks: stable chunks skip text layout on each token.
-private fun answerChunks(text: String): List<String> {
-    if (text.length > 12_000) return listOf(text)
-    val out = ArrayList<String>(text.length / 600 + 1)
-    var start = 0
-    while (start < text.length) {
-        var end = (start + 600).coerceAtMost(text.length)
-        if (end < text.length) {
-            val nl = text.lastIndexOf('\n', end - 1)
-            if (nl > start + 300) end = nl + 1
-        }
-        out.add(text.substring(start, end))
-        start = end
-    }
-    return out
-}
-
-// 流式光标：竖条颜色跟随主题强调色，按官方节奏慢闪（约 1s 亮 / 0.5s 暗）。
-@Composable
-private fun cursorAlpha(): Float {
-    val alpha = remember { Animatable(1f) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1000)
-            alpha.animateTo(.12f, tween(110))
-            delay(500)
-            alpha.animateTo(1f, tween(110))
-        }
-    }
-    return alpha.value
-}
-
-private fun caretText(text: String, alpha: Float, color: Color): AnnotatedString = buildAnnotatedString {
-    append(text)
-    withStyle(SpanStyle(color = color.copy(alpha = alpha))) { append("▍") }
-}
-
 // 首 token 到达前的三点呼吸，替代原来静止的「…」。
 @Composable
 private fun TypingDots(color: Color) {
@@ -370,19 +327,6 @@ internal fun AnswerText(m: Msg, live: Boolean = false, accent: Color = C.Blue) {
         Text(if (thinking.isNotBlank()) "（思考中）" else "…", color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp)
         return
     }
-    val caret = if (live) cursorAlpha() else 0f
-    if (text.length < 700) {
-        Text(if (live) caretText(text, caret, accent) else AnnotatedString(text), color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp)
-        return
-    }
-    val chunks = answerChunks(text)
-    Column {
-        chunks.forEachIndexed { index, chunk ->
-            val tail = live && index == chunks.lastIndex
-            Text(
-                if (tail) caretText(chunk, caret, accent) else AnnotatedString(chunk),
-                color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp,
-            )
-        }
-    }
+    // 正文交给 Markdown/LaTeX 渲染；流式增量按空行切段并缓存稳定段。
+    MarkdownText(text, live = live, accent = accent)
 }

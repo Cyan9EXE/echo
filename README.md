@@ -2,7 +2,7 @@
 
 一个原生 Android 客户端（Kotlin + Jetpack Compose）：把 DeepSeek 官方导出的历史会话 ZIP 导入本机，逐会话复活已超过 7 天未活跃的对话；对话直接走用户自己的 API Key（BYOK），不经过任何中转服务器。
 
-> **版本 1.0.0（MIT 版）** · 由 **DeepSeek-V4.1Flash** 构建
+> **版本 1.0.1（MIT 版） · versionCode 2** · 由 **DeepSeek-V4.1Flash** 构建
 > 第三方客户端，与 DeepSeek 官方无隶属关系；DeepSeek 名称与商标归其所有者。
 
 ## 免责声明与品牌边界
@@ -18,17 +18,22 @@
 - **历史导入**：读取官方导出的 chat_sessions/*.json，按 current_message_id → parent_id 还原当前分支；带气泡式导入向导与置顶答疑入口。
 - **逐会话复活**：失效会话可选「完整原文」或「前部摘要 + 后部原文」；摘要由本机生成，不调用 API、不产生额外 token。
 - **对话保留面板**：按时间 / 条数 / 总字数排序；长对话默认折叠。
+- **导出**：会话页上下文条点「导出」，可把当前会话导成 Markdown，或把全部会话导成带 index.md 的 ZIP；走系统文件选择器，不申请存储权限。
 - **上下文透明**：显示当前 token / 1M、占比、原文或摘要模式，以及每轮与累计估算费用。
-- **流式对话**：思考过程折叠；支持暂停、重试、复制、朗读。
+- **流式对话**：思考过程折叠；支持暂停、重试、复制、朗读；单次输出上限默认 32K tokens，可在设置里选 8K / 16K / 32K / 64K，触顶会明确提示。
 - **官方语音**：TTS 朗读（¥3 / 万计费字符）与语音识别（¥0.78 / 小时），调用前弹计费确认，可勾选不再提示；本机用量账本。
 - **联网搜索**：调用官方 deepseek_web_search 工具，回答附带来源链接。
 - **外观**：日间 / 夜间 / 暖黄 / 淡绿四种外观 × 金 · 蓝 · 青 · 陶 · 白五种强调色（共 20 个预设，可交叉组合）；支持自定义 HSL 强调色；字号可调；切换有过渡动画。
 - **隐私**：API Key 默认隐藏，连续点 3 次「显示」才展示，展示期间禁止截屏；Key 用 Android Keystore（AES-256-GCM）加密后才落盘，磁盘上没有明文；Key、会话与附件只存在本机。
 - **自适应**：720–3840 像素宽度的屏幕均可正常使用，关键操作热区不小于 48dp。
 
+## 截图
+
+真机截图待补（本仓库不伪造截图）。计划补齐：欢迎页、对话页（流式 + 思考折叠）、失效会话复活、前部摘要 + 后部原文、外观与字号、用量与费用面板、设置与关于。补图后放在 docs/screenshots/ 并在本节引用。
+
 ## 技术
 
-纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。23 个 Kotlin 文件、约 8,000 行：
+纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。25 个 Kotlin 文件、约 8,900 行：
 
     app/src/main/java/app/echo/
       MainActivity / EchoApp     入口与导航
@@ -36,13 +41,15 @@
       Composer / WelcomeScreen   输入区与欢迎页
       Drawer / SettingsScreen    会话抽屉、设置、关于
       HelpDialogs / UsageSheet   答疑、导入向导、计费确认、用量
-      State / Models / Api       状态、持久化、流式请求
+      State / Models / Api / Sse 状态、持久化、流式请求、协议解析
       Billing / Speech           计费、TTS、ASR、用量账本
+      Export                     导出引擎与会话页导出面板（单会话 Markdown / 全会话 ZIP）
       Design / Theme / Glyphs / Format / Motion
 
 - namespace = applicationId = app.echo；旧包名 app.xuxie 已废弃，不得再使用。
 - minSdk 26 / targetSdk 35。
-- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 1 / 1.0.0）。
+- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 2 / 1.0.1）。
+- 测试：JVM 单元测试覆盖 SSE 解析、计费与切分、格式化、导出渲染与 Markdown 解析，命令与约定见 CONTRIBUTING.md；CI 见 .github/workflows/ci.yml（Kotlin 编译 + 单测 + mock SSE 自检）。
 - 性能：对话页只在贴底时跟随流式输出；会话列表的分区 / 搜索 / 排序结果按状态缓存；索引写入与消息解析全部下沉 IO 线程。
 - AOT（profile 引导）：release 内置官方 androidx.baselineprofile 插件生成的 **Baseline Profile**，并依赖 androidx.profileinstaller:1.4.1。Baseline Profile 只是“热点方法清单”，随同一个 APK 分发到所有设备；真正的机器码由每台设备安装/空闲时由 ART 的 dex2oat 以 speed-profile 本地生成，**不随安装包分发机器码**。
 
@@ -53,7 +60,7 @@
     export JAVA_HOME=/path/to/jdk-17
     gradle :app:assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
 
-产物：app/build/outputs/apk/release/app-release.apk。默认 API：https://api.deepseek.com；如需指向本地 mock，可加 -PapiOrigin=http://10.0.2.2:8099。
+产物：app/build/outputs/apk/release/app-release.apk。默认 API：https://api.deepseek.com；如需指向本地 mock，可加 -PapiOrigin=http://10.0.2.2:18080（scripts/mock_sse_server.py，用法见 CONTRIBUTING.md）。不要用 mock 构建对外分发。
 
 **正式签名**：release keystore 与口令**不入库**。在 GRADLE_USER_HOME/gradle.properties（例如 ~/.gradle/gradle.properties）配置：
 
@@ -79,11 +86,17 @@ profile 由 baselineprofile 宏基准模块采集，覆盖启动、滚动、设�
 
 ## 已知限制
 
-- Markdown / LaTeX 尚未渲染，公式按纯文本显示。
-- 导入只保留当前分支；附件与图片不会重传。
-- 尚未提供「导出全部历史」（单会话 Markdown / 全会话 ZIP 在路线图中）。
+- Markdown / LaTeX 尚未接入渲染（Markdown.kt 的解析与渲染层在落地中），当前公式与代码块按纯文本显示；接入后本节更新。
+- 导入只保留当前分支；官方导出不含附件二进制，图片与文件不会重传；按会话 id 去重合并（同 id 保留本机版本）。
 - 联网搜索的真实 Key 全链路回归仍在进行中。
-- 单元测试与 CI 尚未建立；协议兼容层基线文档待补。
+- 视觉与交互以主题打磨为主；Markdown/LaTeX、附件重传、多端同步等能力见 docs/not-doing.md 与路线图。
+
+## 文档
+
+- [ARCHITECTURE.md](ARCHITECTURE.md)：模块、线程、持久化与一次发送的链路。
+- [docs/protocol-compat.md](docs/protocol-compat.md)：上游接口、SSE 事件、错误码与已知不兼容。
+- [CONTRIBUTING.md](CONTRIBUTING.md)：构建、测试、代码风格与 PR 规范。
+- [docs/not-doing.md](docs/not-doing.md)：明确不做与维护边界。
 
 ## 许可
 
