@@ -151,8 +151,8 @@ internal fun pumpSse(
 object ApiClient {
     private val main = Handler(Looper.getMainLooper())
 
-    private const val FLUSH_INTERVAL_MS = 60L
-    private const val FLUSH_BYTES = 8192
+    private const val FLUSH_INTERVAL_MS = 16L
+    private const val FLUSH_BYTES = 4096
     const val DEFAULT_MAX_TOKENS = 32_768
     const val MIN_MAX_TOKENS = 4_096
     const val MAX_MAX_TOKENS = 65_536
@@ -165,7 +165,7 @@ object ApiClient {
         systemPrompt: String? = null,
         messages: List<ApiMsg>,
         maxTokens: Int = DEFAULT_MAX_TOKENS,
-        flushMs: Int = 60,
+        flushMs: Int = 16,
         onText: (String) -> Unit,
         onThinking: (String) -> Unit,
         onSignature: ((String) -> Unit)? = null,

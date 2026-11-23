@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -27,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -110,14 +112,22 @@ internal fun ChatScreen(state: AppState, accent: Color) {
         val listState = rememberLazyListState()
         // Only the streaming session is live; the global flag would mark B live too (P2-2).
         val liveId = if (state.liveSessionId == s.id) s.messages.lastOrNull()?.id else null
-        // Follow the tail only while the user is already near the bottom. The old
-        // implementation force-scrolled every 80 ms during streaming regardless of
-        // the user's position, which stole gestures and kept the list re-laying out.
-        val atBottom by remember {
-            derivedStateOf {
-                val info = listState.layoutInfo
-                val last = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-                last >= info.totalItemsCount - 2
+        // 用户一旦主动滑动就暂停跟底，重新看到最后一项时恢复；
+        // 这样流式滚动不会抢上滑手势（R4-P1-2）。
+        var followTail by remember(s.id) { mutableStateOf(true) }
+        LaunchedEffect(s.id, listState) {
+            snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+                if (scrolling) {
+                    followTail = false
+                } else {
+                    // 只有真正停在底部（最后一项末端贴住视口）才恢复跟底；
+                    // 在超长回复内部上滑后不会立刻被拽回（R4-P1-2）。
+                    val info = listState.layoutInfo
+                    val last = info.visibleItemsInfo.lastOrNull()
+                    val gap = if (last == null) Float.MAX_VALUE
+                        else (last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding)).toFloat()
+                    followTail = last != null && last.index >= info.totalItemsCount - 1 && gap <= 2f
+                }
             }
         }
         LazyColumn(
@@ -142,24 +152,22 @@ internal fun ChatScreen(state: AppState, accent: Color) {
         }
         LaunchedEffect(s.id, s.messages.ready) {
             if (s.messages.isNotEmpty()) {
-                runCatching { listState.scrollToItem(s.messages.size - 1) }
+                runCatching { listState.scrollToItem(s.messages.size - 1, Int.MAX_VALUE) }
             }
         }
-        // Read the live text lengths inside snapshotFlow rather than during composition:
-        // this keeps ChatScreen itself stable while streaming and only asks the list to
-        // follow the tail when there is genuinely new content, at most ~11 fps.
+        // 帧同步跟底：每帧只补“最后一项超出视口”的那几像素，文本增长和列表
+        // 滚动发生在同一帧，取代每 90/60 ms 一次 scrollToItem 跳变（R4-P1-2）。
         LaunchedEffect(s.id, liveId) {
             if (liveId == null) return@LaunchedEffect
-            var lastScroll = 0L
-            snapshotFlow {
-                val m = s.messages.lastOrNull()
-                (m?.text?.length ?: 0) + (m?.thinking?.length ?: 0)
-            }.conflate().collect {
-                if (!atBottom) return@collect
-                val now = android.os.SystemClock.uptimeMillis()
-                if (now - lastScroll < (if (state.performanceMode) 60 else 90)) return@collect
-                lastScroll = now
-                runCatching { listState.scrollToItem(s.messages.size - 1, Int.MAX_VALUE) }
+            while (true) {
+                withFrameNanos { }
+                if (!followTail || !state.isStreaming(s.id)) continue
+                val info = listState.layoutInfo
+                val last = info.visibleItemsInfo.lastOrNull() ?: continue
+                if (last.index != info.totalItemsCount - 1) continue
+                val overflow = last.offset + last.size -
+                    (info.viewportEndOffset - info.afterContentPadding)
+                if (overflow > 0) runCatching { listState.scrollBy(overflow.toFloat()) }
             }
         }
         if (state.apiKey.isBlank() && s.messages.any { it.role == "assistant" && it.failed }) {

@@ -60,6 +60,7 @@ import androidx.compose.runtime.setValue
 @Composable
 fun EchoApp(state: AppState) {
     val motionOn = remember { ValueAnimator.areAnimatorsEnabled() }
+    Motion.animationsEnabled = motionOn
     val themeAnim = remember { Animatable(C.themeProgress) }
     LaunchedEffect(C.isDay, motionOn) {
         val target = if (C.isDay) 1f else 0f

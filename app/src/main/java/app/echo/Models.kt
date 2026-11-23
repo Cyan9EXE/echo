@@ -139,15 +139,17 @@ class MessageList : AbstractMutableList<Msg>() {
         return loaded.set(index, element)
     }
 
-    fun markReady(list: List<Msg>) {
+    /** @return true when this parse was applied; false when a newer state already won. */
+    fun markReady(list: List<Msg>): Boolean {
         // A late async parse must not overwrite messages added after ready (P1-1).
-        if (ready) return
+        if (ready) return false
         loaded.clear()
         loaded.addAll(list)
         val sb = StringBuilder(list.size)
         for (m in list) sb.append(roleOf(m))
         roleSeq = sb.toString()
         ready = true
+        return true
     }
 
     fun markEmpty() = markReady(emptyList())

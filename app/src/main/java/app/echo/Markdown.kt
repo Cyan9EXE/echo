@@ -1004,16 +1004,25 @@ internal fun MarkdownText(text: String, live: Boolean = false, accent: Color = C
     Column(Modifier.fillMaxWidth()) {
         segments.forEachIndexed { segmentIndex, segment ->
             key(segment.start) {
-                if (segment.text.length > 8000) {
-                    PlainStreamText(segment.text, accent)
+                if (segmentIndex == segments.lastIndex) {
+                    // 尾段是唯一还在增长的部分：以最后一个换行为界，稳定前部只在新行
+                    // 落定时解析一次，尾行按纯文本渲染。这样每个 token 不再触发整段
+                    // parse，8K 文本从 O(n²) 降为按行更新（R4-P1-3）。
+                    val t = segment.text
+                    val cut = t.lastIndexOf('\n')
+                    if (cut > 0) {
+                        MarkdownText(t.substring(0, cut), live = false, accent = accent)
+                        PlainStreamText(t.substring(cut), accent)
+                    } else {
+                        PlainStreamText(t, accent)
+                    }
                 } else {
                     val blocks = remember(segment.text) { MdParser.parse(segment.text) }
-                    val lastSegment = segmentIndex == segments.lastIndex
                     blocks.forEachIndexed { blockIndex, block ->
                         MdBlockView(
                             block = block,
                             first = blockIndex == 0 && segmentIndex == 0,
-                            caret = lastSegment && blockIndex == blocks.lastIndex,
+                            caret = false,
                             accent = accent,
                             base = base,
                         )
@@ -1026,28 +1035,15 @@ internal fun MarkdownText(text: String, live: Boolean = false, accent: Color = C
 
 @Composable
 private fun PlainStreamText(text: String, accent: Color) {
-    val alpha = blinkAlpha()
-    val annotated = remember(text, alpha) {
+    // 光标是静态字符，不进无限闪烁动画：每帧重建 AnnotatedString 会让正文
+    // 每 110 ms 重新排版一次，正是流式卡顿的一项成本（R4-P1-3）。
+    val annotated = remember(text) {
         buildAnnotatedString {
             append(text)
-            withStyle(SpanStyle(color = accent.copy(alpha = alpha))) { append("\u258d") }
+            withStyle(SpanStyle(color = accent)) { append("\u258d") }
         }
     }
     Text(annotated, color = C.Ivory, fontSize = 16.sp, lineHeight = 26.sp, modifier = Modifier.fillMaxWidth())
-}
-
-@Composable
-private fun blinkAlpha(): Float {
-    val value = remember { Animatable(1f) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1000)
-            value.animateTo(.12f, tween(110))
-            delay(500)
-            value.animateTo(1f, tween(110))
-        }
-    }
-    return value.value
 }
 
 @Composable
@@ -1073,7 +1069,7 @@ private fun MdBlockView(
                 fontWeight = FontWeight.SemiBold,
             )
             val parts = remember(block.text) { MdParser.parseInline(block.text) }
-            val caretMark = if (caret) MdCaret(blinkAlpha(), accent) else null
+            val caretMark = if (caret) MdCaret(1f, accent) else null
             Text(
                 text = buildInlineText(parts, caretMark),
                 style = style,
@@ -1083,7 +1079,7 @@ private fun MdBlockView(
 
         is MdBlock.Paragraph -> {
             val parts = remember(block.text) { MdParser.parseInline(block.text) }
-            val caretMark = if (caret) MdCaret(blinkAlpha(), accent) else null
+            val caretMark = if (caret) MdCaret(1f, accent) else null
             Text(
                 text = buildInlineText(parts, caretMark),
                 style = base,
@@ -1122,7 +1118,7 @@ private fun MdBlockView(
                     if (caret) {
                         Text(
                             "\u258d",
-                            color = accent.copy(alpha = blinkAlpha()),
+                            color = accent,
                             fontSize = 13.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
                         )
@@ -1213,7 +1209,7 @@ private fun ListRow(
     base: TextStyle,
 ) {
     val parts = remember(item) { MdParser.parseInline(item) }
-    val caretMark = if (caret) MdCaret(blinkAlpha(), accent) else null
+    val caretMark = if (caret) MdCaret(1f, accent) else null
     Row(Modifier.fillMaxWidth()) {
         Text(
             marker,
@@ -1483,7 +1479,7 @@ private fun MathBlockView(latex: String, first: Boolean, caret: Boolean, accent:
         if (caret) {
             Text(
                 "\u258d",
-                color = accent.copy(alpha = blinkAlpha()),
+                color = accent,
                 fontSize = 14.sp,
                 modifier = Modifier.padding(top = 2.dp),
             )

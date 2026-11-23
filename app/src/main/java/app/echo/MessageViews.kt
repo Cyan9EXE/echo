@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -94,6 +95,8 @@ internal fun UserBubble(text: String) {
 internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boolean = false) {
     val context = LocalContext.current
     var askTts by remember(m.id) { mutableStateOf(false) }
+    // 只在“有无正文”翻转时重组父气泡，流式 token 不再每帧触发整块重组（R4-P1-3）。
+    val answerStarted by remember(m.id) { derivedStateOf { m.text.isNotBlank() } }
     val readingThis = Reader.activeId == m.id &&
         (Reader.loading || Reader.speaking || Reader.paused)
     // 暂停优先于 loading：缓冲阶段点暂停后 track 已压住、不会再出声，
@@ -133,7 +136,7 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
         }
         Spacer(Modifier.height(7.dp))
         ThinkingBlock(m, accent, live)
-        if (m.text.isNotBlank() || m.thinking.isBlank()) AnswerText(m, live = live, accent = accent)
+        if (answerStarted || m.thinking.isBlank()) AnswerText(m, live = live, accent = accent)
         if (m.citations.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             CitationsBlock(m.citations, accent)
@@ -303,10 +306,16 @@ internal fun ThinkingBlock(m: Msg, accent: Color, live: Boolean) {
 private fun TypingDots(color: Color) {
     val phase = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        while (true) {
+        if (!Motion.animationsEnabled) {
+            phase.snapTo(.5f)
+            return@LaunchedEffect
+        }
+        // 只跑三轮，然后停在静止点：首 token 等待再久也不做永久动画。
+        repeat(3) {
             phase.snapTo(0f)
             phase.animateTo(1f, tween(900, easing = LinearEasing))
         }
+        phase.snapTo(.5f)
     }
     Row(Modifier.height(26.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { i ->

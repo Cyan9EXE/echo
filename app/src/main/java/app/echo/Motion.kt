@@ -3,6 +3,9 @@ package app.echo
 import androidx.compose.animation.core.CubicBezierEasing
 
 object Motion {
+    /** 系统「减弱动态」/关闭动画时置 false；所有无限动画与入场动画都应尊重它。 */
+    var animationsEnabled = true
+
     const val BASE = 200
     const val SLOW = 320
     const val HERO = 480

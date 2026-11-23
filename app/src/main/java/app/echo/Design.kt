@@ -118,11 +118,13 @@ internal fun EchoMark(
 ) {
     val alpha = remember { Animatable(1f) }
     LaunchedEffect(blinking) {
-        if (!blinking) {
+        if (!blinking || !Motion.animationsEnabled) {
             alpha.snapTo(1f)
             return@LaunchedEffect
         }
-        while (true) {
+        // 入场只呼吸两轮，之后保持常亮：无限动画会被读成 loading，
+        // 也阻止页面进入 idle（R4-P2-2）。
+        repeat(2) {
             delay(1100)
             alpha.animateTo(.10f, tween(durationMillis = 120, easing = FastOutSlowInEasing))
             delay(660)

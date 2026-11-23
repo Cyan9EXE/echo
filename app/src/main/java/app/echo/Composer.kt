@@ -185,7 +185,7 @@ internal fun Composer(state: AppState, accent: Color) {
                             modifier = Modifier.size(44.dp),
                             shape = CircleShape,
                             scale = .92f,
-                            description = "暂停回答",
+                            description = "停止生成",
                         ) {
                             Box(
                                 Modifier

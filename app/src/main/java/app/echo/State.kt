@@ -451,7 +451,7 @@ class AppState(private val context: Context) {
         val body = text.trim()
         if (body.isEmpty()) return false
         if (streaming) {
-            notice = "正在生成；先点暂停，再发送新的消息。"
+            notice = "正在生成；先点停止，再发送新的消息。"
             return false
         }
         typing = false
@@ -494,15 +494,26 @@ class AppState(private val context: Context) {
         val textBuf = StringBuilder()
         val thinkingBuf = StringBuilder()
         val thinkStarted = SystemClock.uptimeMillis()
-        var lastPublish = 0L
-        fun publish(force: Boolean) {
-            val now = SystemClock.uptimeMillis()
-            if (!force && now - lastPublish < (if (performanceMode) 70 else 120)) return
-            lastPublish = now
+        // 正文按屏幕帧提交：SSE 可能每几毫秒到一次，但一帧最多写一次 Compose 状态，
+        // 让打字机效果跟刷新率对齐，而不是被固定 120 ms 节流成 8 fps (R4-P1-1)。
+        val choreographer = android.view.Choreographer.getInstance()
+        var publishScheduled = false
+        fun publishNow() {
             reply.text = textBuf.toString()
             reply.thinking = thinkingBuf.toString()
         }
-        flushLive = { publish(true) }
+        val publishFrame = object : android.view.Choreographer.FrameCallback {
+            override fun doFrame(frameTimeNanos: Long) {
+                publishScheduled = false
+                if (mySeq == streamSeq) publishNow()
+            }
+        }
+        fun schedulePublish() {
+            if (publishScheduled) return
+            publishScheduled = true
+            choreographer.postFrameCallback(publishFrame)
+        }
+        flushLive = { publishNow() }
         val citations = ArrayList<Citation>()
         val handle = ApiClient.stream(
             apiKey = apiKey,
@@ -512,7 +523,7 @@ class AppState(private val context: Context) {
             systemPrompt = sysPrompt,
             messages = history,
             maxTokens = maxTokens,
-            flushMs = if (performanceMode) 45 else 60,
+            flushMs = if (performanceMode) 33 else 16,
             onText = { chunk ->
                 if (mySeq == streamSeq) {
                     textBuf.append(chunk)
@@ -520,7 +531,7 @@ class AppState(private val context: Context) {
                         reply.thinkingMs = SystemClock.uptimeMillis() - thinkStarted
                     }
                     session.updatedAt = System.currentTimeMillis()
-                    publish(false)
+                    schedulePublish()
                     bumpRevisionThrottled()
 
                     // Flush streaming text to disk every ~2s so a kill loses at most 2s (P2-3).
@@ -535,7 +546,7 @@ class AppState(private val context: Context) {
             onThinking = { chunk ->
                 if (mySeq == streamSeq) {
                     thinkingBuf.append(chunk)
-                    publish(false)
+                    schedulePublish()
                     bumpRevisionThrottled()
                 }
             },
@@ -575,7 +586,8 @@ class AppState(private val context: Context) {
                     if (thinkingBuf.isNotEmpty() && reply.thinkingMs == 0L) {
                         reply.thinkingMs = SystemClock.uptimeMillis() - thinkStarted
                     }
-                    publish(true)
+                    choreographer.removeFrameCallback(publishFrame)
+                    publishNow()
                     streaming = false
                     activeStream = null
                     flushLive = null
@@ -593,7 +605,8 @@ class AppState(private val context: Context) {
                     if (thinkingBuf.isNotEmpty() && reply.thinkingMs == 0L) {
                         reply.thinkingMs = SystemClock.uptimeMillis() - thinkStarted
                     }
-                    publish(true)
+                    choreographer.removeFrameCallback(publishFrame)
+                    publishNow()
                     streaming = false
                     activeStream = null
                     flushLive = null
@@ -601,7 +614,7 @@ class AppState(private val context: Context) {
                     refreshContextTokens()
                     if (includeSystem) session.systemSent = true
                     if (cancelled) {
-                        notice = "已暂停生成；已保留当前内容。"
+                        notice = "已停止生成；已保留当前内容。"
                     } else {
                         if (reply.text.isBlank()) reply.text = "（没有收到内容）"
                         if (reply.stopReason == "max_tokens") {
@@ -627,7 +640,7 @@ class AppState(private val context: Context) {
         activeStream?.cancel()
         activeStream = null
         streaming = false
-        notice = "已暂停生成；已保留当前内容。"
+        notice = "已停止生成；已保留当前内容。"
         (streamSessionId ?: current?.id)?.let { markDirty(it) }
         streamSessionId = null
         refreshContextTokens()
@@ -663,7 +676,7 @@ class AppState(private val context: Context) {
 
     fun retryLast() {
         if (streaming) {
-            notice = "正在生成；先点暂停，再发送新的消息。"
+            notice = "正在生成；先点停止，再发送新的消息。"
             return
         }
         val session = current ?: return
@@ -1344,10 +1357,6 @@ class AppState(private val context: Context) {
 
     private fun parseSessionRecord(f: File, s: Session) {
         val o = JSONObject(f.readText())
-        s.summary = o.optString("summary")
-        s.summaryCovered = o.optInt("covered", s.summaryCovered)
-        s.summaryBlocks.clear()
-        s.summaryBlocks.addAll(readSummaryBlocks(o))
         val arr = o.optJSONArray("messages") ?: JSONArray()
         val list = ArrayList<Msg>(arr.length())
         for (i in 0 until arr.length()) {
@@ -1371,7 +1380,13 @@ class AppState(private val context: Context) {
                 it.stopReason = m.optString("stopReason")
             })
         }
-        s.messages.markReady(list)
+        // 先提交消息列表；晚到的异步解析在这里被丢弃时，摘要/覆盖范围/字数
+        // 也必须一起丢弃，不能覆盖已加载会话的较新状态（R4-P2-5）。
+        if (!s.messages.markReady(list)) return
+        s.summary = o.optString("summary")
+        s.summaryCovered = o.optInt("covered", s.summaryCovered)
+        s.summaryBlocks.clear()
+        s.summaryBlocks.addAll(readSummaryBlocks(o))
         s.charCount = list.sumOf { it.text.length.toLong() }
     }
 
