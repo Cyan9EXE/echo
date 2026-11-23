@@ -75,6 +75,17 @@ class TtsAudioTest {
     }
 
     @Test
+    fun tailWaiterDoesNotCompleteAtHalfPlayed() {
+        var now = 0L
+        val waiter = TtsTailWaiter(expectedMs = 100, graceMs = 100, clock = { now })
+        now = 30
+        // 播放进度到一半（曾因 headBytes 被再乘 2 而在这里提前判「播完」）。
+        assertEquals(TtsTailWaiter.Result.WAITING, waiter.step(headBytes = 1_000, writtenBytes = 2_000, paused = false))
+        now = 60
+        assertEquals(TtsTailWaiter.Result.WAITING, waiter.step(headBytes = 1_999, writtenBytes = 2_000, paused = false))
+    }
+
+    @Test
     fun tailWaiterTimesOutWhenOutputStalls() {
         var now = 0L
         val waiter = TtsTailWaiter(expectedMs = 100, graceMs = 100, clock = { now })

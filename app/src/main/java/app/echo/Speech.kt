@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.util.Log
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 朗读：从 /v1/tools/tts 取 24kHz PCM16，半带 FIR 升采样到 48kHz 交给 AudioTrack 播放。
@@ -43,7 +44,6 @@ object Reader {
     private val main = Handler(Looper.getMainLooper())
     private val generation = AtomicInteger(0)
     private val stateLock = Any()
-    private var worker: Thread? = null
 
     /** UI 线程可安全访问的音频出口：只用于暂停/继续/调音量/解除阻塞写。 */
     @Volatile
@@ -52,8 +52,8 @@ object Reader {
     @Volatile
     private var pausedFlag = false
 
-    @Volatile
-    private var connection: HttpURLConnection? = null
+    // 用 AtomicReference 而不是 @Volatile 字段：旧代际线程收尾时不能清掉新代际刚建立的连接（P3-2）。
+    private val connection = AtomicReference<HttpURLConnection?>(null)
 
     private var audioManager: AudioManager? = null
     private var appContext: Context? = null
@@ -98,7 +98,6 @@ object Reader {
         pausedFlag = false
         val thread = Thread { playChunks(text, voice, apiKey, my) }
         thread.priority = Thread.NORM_PRIORITY - 1
-        worker = thread
         thread.start()
     }
 
@@ -131,12 +130,14 @@ object Reader {
 
     /** 停止朗读并清空状态；AudioTrack 由朗读线程在 finally 里释放。 */
     fun stopAll() {
-        val stale = generation.incrementAndGet()
+        // 先取旧代际再自增：abandonFocus 只放行“我这一代”申请的焦点，
+        // 传新代际会导致 focusGeneration 永不匹配、焦点泄漏（P2-2）。
+        val my = generation.get()
+        generation.incrementAndGet()
         pausedFlag = false
         pausedByUser = false
         pausedByFocus = false
-        val conn = connection
-        connection = null
+        val conn = connection.getAndSet(null)
         runCatching { conn?.disconnect() }
         val sink = synchronized(stateLock) {
             val s = uiSink
@@ -146,8 +147,7 @@ object Reader {
         // 解除可能阻塞在 write() 上的旧线程：play 后写入会立即返回，旧线程随即发现 generation 变化
         runCatching { sink?.setVolume(1f) }
         runCatching { sink?.play() }
-        abandonFocus(stale)
-        worker = null
+        abandonFocus(my)
         activeId = ""
         loading = false
         speaking = false
@@ -200,10 +200,12 @@ object Reader {
                 written += batch.size
                 runCatching { sink.play() }
                 started = true
+                // loading 阶段用户可能已经点过暂停：先把 track 压住，状态也别显示成“正在播放”（P2-1）。
+                if (pausedFlag) runCatching { sink.pause() }
                 main.post {
                     if (my == generation.get()) {
                         loading = false
-                        speaking = true
+                        speaking = !pausedFlag
                     }
                 }
             } else {
@@ -225,9 +227,10 @@ object Reader {
                 .setBufferSizeInBytes(max(minBytes * 2, TRACK_BUFFER_BYTES))
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
-            checkAlive(my)
+            // 先挂到 audio 再查代际：否则 checkAlive 抛出时 track 已建但没人释放（P3-1）。
             val sink = AudioTrackSink(track)
             audio = sink
+            checkAlive(my)
             synchronized(stateLock) {
                 if (my != generation.get()) throw StoppedException()
                 uiSink = sink
@@ -272,10 +275,11 @@ object Reader {
                 written += batch.size
                 runCatching { sink?.play() }
                 started = true
+                if (pausedFlag) runCatching { sink?.pause() }
                 main.post {
                     if (my == generation.get()) {
                         loading = false
-                        speaking = true
+                        speaking = !pausedFlag
                     }
                 }
             }
@@ -334,7 +338,7 @@ object Reader {
     ) {
         val readBuffer = ByteArray(8 * 1024)
         val conn = URL(BuildConfig.API_ORIGIN + "/v1/tools/tts").openConnection() as HttpURLConnection
-        connection = conn
+        connection.set(conn)
         try {
             conn.connectTimeout = 15_000
             conn.readTimeout = 60_000
@@ -368,7 +372,7 @@ object Reader {
             }
         } finally {
             runCatching { conn.disconnect() }
-            if (connection === conn) connection = null
+            connection.compareAndSet(conn, null)
         }
     }
 
@@ -497,8 +501,7 @@ object Reader {
 
     private fun finish(my: Int, message: String) {
         val app = appContext ?: return
-        val conn = connection
-        connection = null
+        val conn = connection.getAndSet(null)
         runCatching { conn?.disconnect() }
         main.post {
             if (my != generation.get()) return@post
@@ -632,6 +635,8 @@ object Recorder {
     }
 
     private fun transcribe(apiKey: String, wav: ByteArray, onText: (String) -> Unit, onError: (String) -> Unit) {
+        // 取消后不要再发请求/回填；晚到的回调会把已取消的语音插回输入框（P3-3）。
+        if (discard) return
         val started = SystemClock.uptimeMillis()
         val boundary = "----echo" + UUID.randomUUID().toString().replace("-", "")
         var conn: HttpURLConnection? = null
@@ -662,6 +667,7 @@ object Recorder {
                 val msg = httpErrorMessage(code, raw, "语音识别失败（HTTP $code）")
                 main.post {
                     transcribing = false
+                    if (discard) return@post
                     onError(msg)
                 }
                 return
@@ -675,6 +681,7 @@ object Recorder {
             main.post {
                 transcribing = false
                 elapsed = 0
+                if (discard) return@post
                 if (text.isBlank()) {
                     onError("没有识别到语音内容")
                 } else {
@@ -686,6 +693,7 @@ object Recorder {
             val msg = "语音识别失败：" + (e.message ?: "网络错误")
             main.post {
                 transcribing = false
+                if (discard) return@post
                 onError(msg)
             }
         } finally {

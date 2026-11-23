@@ -156,7 +156,9 @@ internal class TtsTailWaiter(
             deadline += now - it
             pausedAt = null
         }
-        if (writtenBytes > 0 && headBytes * 2 >= writtenBytes) return Result.COMPLETED
+        // headBytes 已经是字节数（playbackHeadPosition 帧数 * 2），不能再乘 2；
+        // 否则播放到一半就会被判成「播完」，提前释放播放器截掉尾部音频。
+        if (writtenBytes > 0 && headBytes >= writtenBytes) return Result.COMPLETED
         if (now > deadline) return Result.TIMED_OUT
         return Result.WAITING
     }

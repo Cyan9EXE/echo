@@ -106,7 +106,8 @@ class MessageList : AbstractMutableList<Msg>() {
     private val loaded = ArrayList<Msg>()
     var roleSeq: String = ""
         private set
-    var ready: Boolean = false
+    /** Compose 可观察：异步解析完成后 UI 必须能重组，不能再用普通布尔。 */
+    var ready by mutableStateOf(false)
         private set
     private val stubUser = Msg(role = "user", text = "")
     private val stubAssistant = Msg(role = "assistant", text = "")
@@ -121,19 +122,19 @@ class MessageList : AbstractMutableList<Msg>() {
     }
 
     override fun add(index: Int, element: Msg) {
-        if (!ready) markReady(emptyList())
+        check(ready) { "MessageList 尚未载入，禁止写入" }
         loaded.add(index, element)
         roleSeq = roleSeq.substring(0, index) + roleOf(element) + roleSeq.substring(index)
     }
 
     override fun removeAt(index: Int): Msg {
-        if (!ready) markReady(emptyList())
+        check(ready) { "MessageList 尚未载入，禁止写入" }
         roleSeq = roleSeq.substring(0, index) + roleSeq.substring(index + 1)
         return loaded.removeAt(index)
     }
 
     override fun set(index: Int, element: Msg): Msg {
-        if (!ready) markReady(emptyList())
+        check(ready) { "MessageList 尚未载入，禁止写入" }
         roleSeq = roleSeq.substring(0, index) + roleOf(element) + roleSeq.substring(index + 1)
         return loaded.set(index, element)
     }

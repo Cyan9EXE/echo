@@ -134,7 +134,12 @@ internal fun ChatScreen(state: AppState, accent: Color) {
                 }
             }
         }
+        // 冷启动或从后台回来时消息可能还没装回内存；主动补一次，
+        // ready 变成 true 会触发重组，避免聊天页永远停在空 stub 上（P1-1）。
         LaunchedEffect(s.id) {
+            state.ensureReadyForUi(s)
+        }
+        LaunchedEffect(s.id, s.messages.ready) {
             if (s.messages.isNotEmpty()) {
                 runCatching { listState.scrollToItem(s.messages.size - 1) }
             }

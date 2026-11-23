@@ -50,6 +50,11 @@ import androidx.compose.ui.unit.sp
 import java.util.Locale
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun Composer(state: AppState, accent: Color) {
@@ -58,6 +63,23 @@ internal fun Composer(state: AppState, accent: Color) {
     var focused by remember { mutableStateOf(false) }
     var askAsr by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // 草稿不能只在离开输入区时落盘：进程被系统杀掉前不会有 onDispose（P2-3）。
+    // 输入停顿 300ms 写一次 prefs，再在退到后台时补写一次，最坏丢最近 300ms 的输入。
+    LaunchedEffect(state.draft) {
+        if (state.draft.isEmpty()) return@LaunchedEffect
+        delay(300)
+        state.persistDraft()
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) state.persistDraft()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     fun micGranted(): Boolean = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
         PackageManager.PERMISSION_GRANTED
 
@@ -180,10 +202,15 @@ internal fun Composer(state: AppState, accent: Color) {
                             onClick = {
                                 val value = text.trim()
                                 if (value.isNotEmpty()) {
-                                    state.typing = false
-                                    state.send(value)
-                                    text = ""
-                                    state.draft = ""
+                                    // send 返回 false 表示被前置条件拦下（生成中/未复活/缺 Key）；
+                                    // 这时不能清空输入框，否则用户刚打的字会丢（P2-3）。
+                                    if (state.send(value)) {
+                                        text = ""
+                                        state.draft = ""
+                                        state.persistDraft()
+                                    } else {
+                                        state.typing = text.isNotBlank()
+                                    }
                                 }
                             },
                             modifier = Modifier.size(44.dp),

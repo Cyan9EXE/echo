@@ -436,24 +436,25 @@ class AppState(private val context: Context) {
         save(forceIndex = true)
     }
 
-    fun send(text: String) {
+    /** @return true 表示消息已进入发送流程（调用方可以清空输入框）；false 表示被前置条件拦下。 */
+    fun send(text: String): Boolean {
         val body = text.trim()
-        if (body.isEmpty()) return
+        if (body.isEmpty()) return false
         if (streaming) {
             notice = "正在生成；先点暂停，再发送新的消息。"
-            return
+            return false
         }
         typing = false
         var session = current
         if (session != null) ensureReadyBlocking(session)
         if (session != null && session.expired && !session.revived) {
             notice = "这段对话已失效：先点「复活并继续」，恢复完整上下文后再发送。"
-            return
+            return false
         }
         if (apiKey.isBlank()) {
             notice = "先填入 API Key，再开始对话。"
             showSettings = true
-            return
+            return false
         }
         if (session == null) {
             session = Session(title = body.take(24))
@@ -593,6 +594,7 @@ class AppState(private val context: Context) {
             },
         )
         if (mySeq == streamSeq) activeStream = handle else handle.cancel()
+        return true
     }
 
     fun stopGenerating() {
@@ -1179,6 +1181,16 @@ class AppState(private val context: Context) {
             sessions.addAll(sorted)
         }
         invalidateCurrent()
+        // 冷启动必须把上次的会话重新装回 current：只恢复 id 不加载消息，聊天页会一直
+        // 停在 ready=false 的 stub 列表上（P1-1）。
+        val restored = currentId?.let { id -> sessions.firstOrNull { it.id == id } }
+        if (restored == null) {
+            setCurrentSession(null)
+        } else {
+            touchReady(restored)
+            ensureReadyForUi(restored)
+            refreshContextTokens()
+        }
         revision++
     }
 
@@ -1213,15 +1225,20 @@ class AppState(private val context: Context) {
     // Anything beyond a small conversation is parsed off the main thread. Parsing a
     // multi-hundred-KB JSON record during a tap was the main source of jank when
     // opening old sessions. parsingIds also prevents queuing the same parse twice.
-    private fun ensureReadyForUi(s: Session) {
+    fun ensureReadyForUi(s: Session) {
         if (s.messages.ready || parsingIds.contains(s.id)) return
         val f = msgFile(s.id)
         if (!f.exists()) {
             s.messages.markEmpty()
+            if (s.id == currentId) refreshContextTokens()
             return
         }
         if (f.length() <= 48_000L) {
             runCatching { parseSessionRecord(f, s) }.onFailure { s.messages.markEmpty() }
+            if (s.id == currentId) {
+                refreshContextTokens()
+                revision++
+            }
             return
         }
         parsingIds.add(s.id)
@@ -1230,7 +1247,10 @@ class AppState(private val context: Context) {
             main.post {
                 parsingIds.remove(s.id)
                 if (!ok) s.messages.markEmpty()
-                if (s.id == currentId) revision++
+                if (s.id == currentId) {
+                    refreshContextTokens()
+                    revision++
+                }
             }
         }
     }

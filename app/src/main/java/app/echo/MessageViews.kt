@@ -96,9 +96,11 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
     var askTts by remember(m.id) { mutableStateOf(false) }
     val readingThis = Reader.activeId == m.id &&
         (Reader.loading || Reader.speaking || Reader.paused)
+    // 暂停优先于 loading：缓冲阶段点暂停后 track 已压住、不会再出声，
+    // 界面必须给「继续朗读」而不是一直显示「准备中…」（P2-1）。
     val readLabel = when {
-        readingThis && Reader.loading -> "准备中…"
         readingThis && Reader.paused -> "继续朗读"
+        readingThis && Reader.loading -> "准备中…"
         readingThis -> "暂停朗读"
         else -> "朗读"
     }
