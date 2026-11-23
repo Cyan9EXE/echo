@@ -466,15 +466,17 @@ class AppState(private val context: Context) {
         forceIndexNext = true
         val f = msgFile(id)
         // 墓碑是本轮删除的唯一提交点：先落盘再改列表，进程之后任意时刻死亡都能靠墓碑恢复。
-        val base = ArrayList(tombstones)
-        base.add(id)
+        // 读-改-写全放在单线程 IO 内：并发删除时主线程各拿旧快照会互相覆盖墓碑（R11-P2-3）。
         io.execute {
+            val base = PersistencePolicy.mergeTombstones(readTombstones(), listOf(id))
             if (!writeTombstones(base)) {
                 main.post { notice = "删除失败：无法写入墓碑记录，请稍后再试。" }
                 return@execute
             }
             val deleted = runCatching { f.delete() || !f.exists() }.getOrDefault(false)
             if (!deleted) {
+                // 文件没删掉时回滚墓碑：否则重启会按墓碑清掉这个会话，删除失败却成了删除成功（R11-P2-5）。
+                writeTombstones(PersistencePolicy.removeTombstone(readTombstones(), id))
                 main.post { notice = "会话未删除：消息文件删除失败，请稍后再试。" }
                 return@execute
             }
@@ -506,7 +508,9 @@ class AppState(private val context: Context) {
                 if (ok) {
                     tombstones.remove(id)
                     syncTombstones()
-                    runCatching { writeTombstones(tombstones) }
+                    // 墓碑落盘交给 IO 线程、传不可变快照：主线程不再 fsync，也不遍历并发 HashSet（R11-P2-3）。
+                    val snapshot = tombstonesSnapshot
+                    io.execute { saveTombstones(snapshot) }
                     if (PersistencePolicy.mayClearIndexDirty(epochAtStart, indexEpoch)) {
                         indexDirty = false
                         lastIndexWriteAt = System.currentTimeMillis()
@@ -1422,8 +1426,8 @@ class AppState(private val context: Context) {
         }
     }
 
-    /** 墓碑落盘；返回是否成功，删除事务据此决定是否继续（R10-P1-1）。 */
-    private fun saveTombstones(): Boolean = writeTombstones(tombstones)
+    /** 墓碑落盘；只接受不可变快照，避免 IO 线程与主线程共享 HashSet（R10-P1-1 / R11-P2-3）。 */
+    private fun saveTombstones(ids: Collection<String> = tombstonesSnapshot): Boolean = writeTombstones(ids)
 
     private fun writeTombstones(ids: Collection<String>): Boolean = runCatching {
         val arr = JSONArray()
@@ -1513,111 +1517,145 @@ class AppState(private val context: Context) {
 
     private fun loadIndexAsync(inMemoryIds: Set<String> = emptySet()) {
         indexLoading = true
+        val epochAtStart = indexEpoch
         // 主线程先取一份「不能因为文件缺失就丢」的 id 快照：脏会话/流式/当前会话（R10-P1-1 修法④）。
         val keepIds = HashSet<String>(inMemoryIds)
         currentId?.let(keepIds::add)
         streamSessionId?.let(keepIds::add)
         keepIds.addAll(dirtyIds)
         io.execute {
-            val list = ArrayList<Session>()
-            var corrupt = false
-            var indexWritten = false
-            var droppedTombstoned = 0
-            runCatching {
-                val arr = JSONArray(indexFile.readText())
-                for (i in 0 until arr.length()) {
-                    val o = arr.optJSONObject(i) ?: continue
-                    val s = sessionFromIndex(o) ?: continue
-                    // 已删除但索引还没来得及重写的行不能复活成空会话（R9-P2-2）。
-                    if (s.id in tombstonesSnapshot) { droppedTombstoned++; continue }
-                    list.add(s)
-                }
-            }.onFailure { corrupt = true }
-            if (corrupt) {
-                // 坏索引不能静默当空列表：备份原文件，尽量从消息文件重建（P2-6）。
-                runCatching {
-                    indexFile.renameTo(File(storeDir, "sessions.index.bad." + System.currentTimeMillis() + ".json"))
-                }
-                val valid = ArrayList(list)
-                list.clear()
-                // 合并去重，保留坏索引里还能读出的 pinned/revived/imported/cost（R8-P2-2）；
-                // 重建行同样过墓碑，避免把已删会话建回来（R10-P2-1）。
-                list.addAll(
-                    PersistencePolicy.mergeRebuilt(valid, rebuildIndexFromMessages()) { it.id }
-                        .filterNot { it.id in tombstonesSnapshot }
-                )
-            }
-            // 索引行对应的消息文件若已丢失（崩溃窗口 b 遗留的幽灵行），丢弃并补写索引（R10-P1-1 修法④）。
-            var droppedMissing = 0
-            val iter = list.iterator()
-            while (iter.hasNext()) {
-                val s = iter.next()
-                if (s.id !in keepIds && !msgFile(s.id).exists()) {
-                    iter.remove()
-                    droppedMissing++
-                }
-            }
-            // 墓碑过滤后的索引必须先落盘，才能删残留消息文件/清墓碑；否则进程再死会复活（R10-P1-1 修法③）。
-            var needsIndexWrite = corrupt || droppedTombstoned > 0 || droppedMissing > 0
-            if (needsIndexWrite) {
-                if (list.isNotEmpty()) {
-                    indexWritten = runCatching {
-                        writeAtomic(indexFile, serializeIndex(list.map(::sessionIndexRow)))
-                    }.isSuccess
-                }
+            try {
+                loadIndexBody(keepIds, inMemoryIds, epochAtStart)
+            } catch (t: Throwable) {
+                // 索引恢复抛异常也必须复位加载态，否则欢迎页永远停在「正在恢复会话索引…」（R11-P2-2）。
                 main.post {
-                    if (corrupt) {
-                        notice = if (list.isEmpty()) {
-                            "会话索引损坏且无法从本地文件重建；可用「导入历史对话」恢复。"
-                        } else {
-                            "会话索引损坏，已从本地会话文件重建 " + list.size + " 个会话。"
-                        }
+                    indexLoading = false
+                    notice = "会话索引恢复失败：" + (t.message ?: "未知错误")
+                    applyLoaded(emptyList(), false)
+                }
+            }
+        }
+    }
+
+    /**
+     * loadIndexAsync 的 IO 主体：读索引 → 墓碑/幽灵行过滤 → 过滤后索引先落盘 → 清理墓碑 →
+     * 与消息文件对账补孤儿 → 发布到 UI。每次索引写都分别记账：任一失败都保留脏标记（R11-P2-1）。
+     */
+    private fun loadIndexBody(keepIds: Set<String>, inMemoryIds: Set<String>, epochAtStart: Long) {
+        val list = ArrayList<Session>()
+        var corrupt = false
+        var droppedTombstoned = 0
+        var droppedMissing = 0
+        var indexWriteAttempts = 0
+        var indexWriteFailures = 0
+
+        fun writeIndexNow() {
+            indexWriteAttempts++
+            val ok = runCatching {
+                writeAtomic(indexFile, serializeIndex(list.map(::sessionIndexRow)))
+            }.isSuccess
+            if (!ok) indexWriteFailures++
+        }
+
+        runCatching {
+            val arr = JSONArray(indexFile.readText())
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val s = sessionFromIndex(o) ?: continue
+                // 已删除但索引还没来得及重写的行不能复活成空会话（R9-P2-2）。
+                if (s.id in tombstonesSnapshot) { droppedTombstoned++; continue }
+                list.add(s)
+            }
+        }.onFailure { corrupt = true }
+        if (corrupt) {
+            // 坏索引不能静默当空列表：备份原文件，尽量从消息文件重建（P2-6）。
+            runCatching {
+                indexFile.renameTo(File(storeDir, "sessions.index.bad." + System.currentTimeMillis() + ".json"))
+            }
+            val valid = ArrayList(list)
+            list.clear()
+            // 合并去重，保留坏索引里还能读出的 pinned/revived/imported/cost（R8-P2-2）；
+            // 重建行同样过墓碑，避免把已删会话建回来（R10-P2-1）。
+            list.addAll(
+                PersistencePolicy.mergeRebuilt(valid, rebuildIndexFromMessages()) { it.id }
+                    .filterNot { it.id in tombstonesSnapshot }
+            )
+        }
+        // 索引行对应的消息文件若已丢失（崩溃窗口 b 遗留的幽灵行），丢弃并补写索引（R10-P1-1 修法④）。
+        val iter = list.iterator()
+        while (iter.hasNext()) {
+            val s = iter.next()
+            if (s.id !in keepIds && !msgFile(s.id).exists()) {
+                iter.remove()
+                droppedMissing++
+            }
+        }
+        // 墓碑过滤后的索引必须先落盘，才能删残留消息文件/清墓碑；空索引也要显式写一次（R11-P3-2）。
+        val needsIndexWrite = corrupt || droppedTombstoned > 0 || droppedMissing > 0
+        if (needsIndexWrite) {
+            writeIndexNow()
+            main.post {
+                if (corrupt) {
+                    notice = if (list.isEmpty()) {
+                        "会话索引损坏且无法从本地文件重建；可用「导入历史对话」恢复。"
+                    } else {
+                        "会话索引损坏，已从本地会话文件重建 " + list.size + " 个会话。"
                     }
                 }
             }
-            val cleanupAllowed = PersistencePolicy.startupCleanupAllowed(indexWritten, needsIndexWrite)
-            if (cleanupAllowed && tombstonesSnapshot.isNotEmpty()) {
-                val left = ArrayList<String>()
-                for (id in tombstonesSnapshot) {
-                    val f = msgFile(id)
-                    if (!runCatching { f.delete() || !f.exists() }.getOrDefault(false)) left.add(id)
-                }
-                main.post {
-                    tombstones.clear()
-                    tombstones.addAll(left)
-                    syncTombstones()
-                    io.execute { saveTombstones() }
-                }
-            }
-            // 索引与消息文件对账：索引丢行/导入后索引写失败时补齐；按最近修改优先、不截断（R9-P1-2 / P2-5）。
-            val indexed = list.mapTo(HashSet()) { it.id }
-            val candidates = (msgDir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: emptyArray())
-                .sortedByDescending { it.lastModified() }
-                .map { it.name.substringBeforeLast('-') }
-                .filter { it.isNotBlank() }
-            val orphans = PersistencePolicy.reconcileIds(indexed, inMemoryIds, tombstonesSnapshot, candidates)
-            if (orphans.isNotEmpty()) {
-                var added = 0
-                for (id in orphans) {
-                    sessionFromMessageFile(msgFile(id))?.let { list.add(it); added++ }
-                }
-                if (added > 0) {
-                    indexWritten = runCatching {
-                        writeAtomic(indexFile, serializeIndex(list.map(::sessionIndexRow)))
-                    }.isSuccess || indexWritten
-                    main.post { notice = "已从本机会话文件补回 " + added + " 个索引里缺失的会话。" }
-                }
+        }
+        // 只有「过滤后索引确实写盘」才允许清理墓碑与残留文件（R10-P1-1 修法③ / R11-P2-1）。
+        val filterWritten = indexWriteAttempts > 0 && indexWriteFailures == 0
+        if (PersistencePolicy.startupCleanupAllowed(filterWritten, needsIndexWrite) &&
+            tombstonesSnapshot.isNotEmpty()
+        ) {
+            val left = ArrayList<String>()
+            for (id in tombstonesSnapshot) {
+                val f = msgFile(id)
+                if (!runCatching { f.delete() || !f.exists() }.getOrDefault(false)) left.add(id)
             }
             main.post {
-                if (indexWritten) {
+                tombstones.clear()
+                tombstones.addAll(left)
+                syncTombstones()
+                val snapshot = tombstonesSnapshot
+                io.execute { saveTombstones(snapshot) }
+            }
+        }
+        // 索引与消息文件对账：索引丢行/导入后索引写失败时补齐；按最近修改优先、不截断（R9-P1-2）。
+        val indexed = list.mapTo(HashSet()) { it.id }
+        val candidates = (msgDir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: emptyArray())
+            .sortedByDescending { it.lastModified() }
+            .map { it.name.substringBeforeLast('-') }
+            .filter { it.isNotBlank() }
+        val orphans = PersistencePolicy.reconcileIds(indexed, inMemoryIds, tombstonesSnapshot, candidates)
+        if (orphans.isNotEmpty()) {
+            var added = 0
+            for (id in orphans) {
+                sessionFromMessageFile(msgFile(id))?.let { list.add(it); added++ }
+            }
+            if (added > 0) {
+                // 补入孤儿后再写一次完整索引；失败时下面统一置脏重试（R11-P2-1）。
+                writeIndexNow()
+                main.post { notice = "已从本机会话文件补回 " + added + " 个索引里缺失的会话。" }
+            }
+        }
+        val indexWritten = indexWriteAttempts > 0 && indexWriteFailures == 0
+        main.post {
+            indexLoading = false
+            if (indexWritten) {
+                if (PersistencePolicy.mayClearIndexDirty(epochAtStart, indexEpoch)) {
                     indexDirty = false
                     lastIndexWriteAt = System.currentTimeMillis()
-                } else if (needsIndexWrite) {
-                    indexDirty = true
+                } else {
                     forceIndexNext = true
                 }
-                applyLoaded(list, indexWritten)
+            } else if (needsIndexWrite || indexWriteFailures > 0) {
+                // 本该写却没写成或写入失败：保留脏标记，下一次 save/启动重试（R11-P2-1）。
+                indexDirty = true
+                forceIndexNext = true
             }
+            applyLoaded(list, indexWritten)
         }
     }
 
@@ -1643,11 +1681,14 @@ class AppState(private val context: Context) {
 
     private fun applyLoaded(list: List<Session>, indexWritten: Boolean = false) {
         indexLoaded = true
-        val sorted = list.sortedByDescending { it.updatedAt }
+        // 加载/重建期间主线程可能刚删除会话：应用前再用最新墓碑过滤一次，否则刚删的会话会回来（R11-P2-4）。
+        val deleted = tombstonesSnapshot
+        val sorted = list.sortedByDescending { it.updatedAt }.filterNot { it.id in deleted }
         // The cold-start index may lag behind memory: keep local/dirty/current sessions (P3-2).
         val loadedIds = sorted.mapTo(HashSet()) { it.id }
         val localOnly = sessions.filter {
-            it.id !in loadedIds && (it.id in dirtyIds || it.id == streamSessionId || it.id == currentId)
+            it.id !in loadedIds && it.id !in deleted &&
+                (it.id in dirtyIds || it.id == streamSessionId || it.id == currentId)
         }
         Snapshot.withMutableSnapshot {
             sessions.clear()

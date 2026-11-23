@@ -58,4 +58,22 @@ internal object PersistencePolicy {
     /** 启动清理（删残留消息文件、撤墓碑）的前提：过滤墓碑后的索引已写盘，或本来就不需要重写（R10-P1-1 修法③）。 */
     fun startupCleanupAllowed(indexWritten: Boolean, needsIndexWrite: Boolean): Boolean =
         indexWritten || !needsIndexWrite
+
+    /**
+     * 墓碑并集：保留磁盘上已有的全部墓碑，再补本次新增的 id（R11-P2-3）。
+     * 删除流程在单线程 IO 内「读-合并-写」，并发删除不会用旧快照覆盖新墓碑。
+     */
+    fun mergeTombstones(existing: Collection<String>, added: Collection<String>): Set<String> {
+        val out = LinkedHashSet<String>(existing.size + added.size)
+        out.addAll(existing)
+        out.addAll(added)
+        return out
+    }
+
+    /** 墓碑回滚（删除消息文件失败时用）：去掉本次 id，其余历史墓碑保留（R11-P2-5）。 */
+    fun removeTombstone(existing: Collection<String>, id: String): Set<String> {
+        val out = LinkedHashSet<String>(existing.size)
+        for (item in existing) if (item != id) out.add(item)
+        return out
+    }
 }

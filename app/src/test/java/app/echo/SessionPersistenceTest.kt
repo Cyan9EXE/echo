@@ -98,4 +98,20 @@ class SessionPersistenceTest {
         assertEquals(true, PersistencePolicy.startupCleanupAllowed(false, false))
     }
 
+    @Test
+    fun mergeTombstonesKeepsExistingAndAddsNew() {
+        // 并发删除：已有墓碑不能丢，新 id 追加；重复 id 只保留一次（R11-P2-3）。
+        assertEquals(setOf("a", "b", "c"), PersistencePolicy.mergeTombstones(listOf("a", "b"), listOf("c", "b")))
+        assertEquals(setOf("a"), PersistencePolicy.mergeTombstones(listOf("a"), emptyList()))
+        assertEquals(setOf("b"), PersistencePolicy.mergeTombstones(emptyList(), listOf("b")))
+    }
+
+    @Test
+    fun removeTombstoneRollsBackOnlyThatId() {
+        // 删除消息文件失败时回滚本次墓碑，历史墓碑与会话必须保留（R11-P2-5）。
+        assertEquals(setOf("a", "c"), PersistencePolicy.removeTombstone(listOf("a", "b", "c"), "b"))
+        assertEquals(setOf("a"), PersistencePolicy.removeTombstone(listOf("a"), "missing"))
+        assertEquals(emptySet<String>(), PersistencePolicy.removeTombstone(listOf("x"), "x"))
+    }
+
 }
