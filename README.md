@@ -40,7 +40,7 @@
 
 ## 技术
 
-纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。27 个 Kotlin 文件、约 10,980 行：
+纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。27 个 Kotlin 文件、约 11,045 行：
 
     app/src/main/java/app/echo/
       MainActivity / EchoApp     入口与导航
@@ -56,7 +56,7 @@
 - namespace = applicationId = app.echo；旧包名 app.xuxie 已废弃，不得再使用。
 - minSdk 26 / targetSdk 35。
 - 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 6 / 1.0.5）。
-- 测试：JVM 单元测试 **98 例 0 失败**，覆盖请求体拼装与 SSE 解析/协议回归（`buildChatBody` / `pumpSse`）、计费与切分、格式化、导出渲染与 Markdown 解析、48k 半带重采样与播放尾等待（`TtsAudioTest`）；本地 `bash scripts/run_tests.sh --smoke` 会跑编译 + 单测 + mock SSE 自检 + 冒烟，命令与约定见 CONTRIBUTING.md；GitHub Actions 见 .github/workflows/ci.yml。
+- 测试：JVM 单元测试 **99 例 0 失败**，覆盖请求体拼装与 SSE 解析/协议回归（`buildChatBody` / `pumpSse`）、计费与切分、格式化、导出渲染与 Markdown 解析、48k 半带重采样与播放尾等待（`TtsAudioTest`）；本地 `bash scripts/run_tests.sh --smoke` 会跑编译 + 单测 + mock SSE 自检 + 冒烟，命令与约定见 CONTRIBUTING.md；GitHub Actions 见 .github/workflows/ci.yml。
 - 性能：对话页只在贴底时跟随流式输出；会话列表的分区 / 搜索 / 排序结果按状态缓存；索引写入与消息解析全部下沉 IO 线程。
 - AOT（profile 引导）：release 内置官方 androidx.baselineprofile 插件生成的 **Baseline Profile**，并依赖 androidx.profileinstaller:1.4.1。Baseline Profile 只是“热点方法清单”，随同一个 APK 分发到所有设备；真正的机器码由每台设备安装/空闲时由 ART 的 dex2oat 以 speed-profile 本地生成，**不随安装包分发机器码**。
 

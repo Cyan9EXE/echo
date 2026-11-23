@@ -2,7 +2,7 @@
 
 目标：验证官方 TTS（`/v1/tools/tts`，24 kHz PCM16）经客户端半带 FIR 升采样到 48 kHz、AudioTrack 流式播放的完整链路，并覆盖暂停/继续/停止、音频焦点、旋转、后台等边界。
 
-范围：1.0.5 / versionCode 6（HEAD d30f815 + REVIEW-LOOP 第 1 轮修复），emulator-5554（1080×2340）。真机待补（真机型号见 REVIEW.md §5）。
+范围：1.0.5 / versionCode 6（HEAD c06392a，含 REVIEW-LOOP 第 1、2 轮修复），emulator-5554（1080×2340）。被测安装包 `Echo-1.0.5-release.apk` sha256 `e7e59e10e3751987216810ca30aa2799f48049fa05b850bf5bb864640a383e6b`。真机待补（真机型号见 REVIEW.md §5）。
 
 ## 前置
 
@@ -15,11 +15,11 @@
 | # | 场景 | 操作 | 期望 | 1.0.5 结果 |
 |---|------|------|------|-----------|
 | 1 | 正常朗读（短） | 长按/点「朗读」→ 确认层「开始朗读」 | 先「准备中…」后进入播放；结束后 chip 复位，Toast「朗读完成 · 计费约 ¥…」 | ✅ ping（4 计费字符，≈¥0.0012）约 1.2 s 播完，chips 复位，Toast 正确 |
-| 2 | 正常朗读（长） | 同上，选择长回答（如 778 tokens） | 播放持续数十秒；chip 显示「暂停朗读」+「停止」 | ✅ 全程正常，AudioFlinger track 正常 add/remove |
+| 2 | 正常朗读（长） | 同上，选择长回答（如 778 tokens） | 播放持续数十秒；chip 显示「暂停朗读」+「停止」 | ✅ 全程正常，AudioFlinger track 正常 add/remove。第 2 轮复验（ocean 583 计费字符）：focus 17:38:53.948 → 17:39:33.449，track 58 写入 1,843,200 帧（48 kHz ≈ 38.4 s），QEMU WAV 语音止于 37.75 s、其后 3.25 s 静音、末 150 ms 最大采样差 0.00229（尾音自然收尾，无截断 / 爆音） |
 | 3 | 暂停 / 继续 | 播放中点「暂停朗读」→ 点「继续朗读」 | 暂停后 chip 变「继续朗读」；继续后恢复「暂停朗读」，音频从暂停处继续 | ✅ 设备实测通过 |
-| 4 | 停止 | 播放中点「停止」 | 立即结束、chip 复位、无残留 track/focus | ✅ chips 复位；`dumpsys media.audio_flinger` = 0 Tracks |
+| 4 | 停止 | 播放中点「停止」 | 立即结束、chip 复位、无残留 track/focus | ✅ chips 复位；`abandonAudioFocus` 17:37:23.911、`removeTrack_l` track 56 @17:37:24.354，随后 `dumpsys media.audio_flinger` = 0 Tracks |
 | 5 | 资源释放 | 停止后检查系统 | 无 AudioTrack 残留、无 AudioFocus 残留 | ✅ focus request/abandon 计数 3/3 平衡 |
-| 6 | loading 阶段暂停 | 点「开始朗读」后立刻点 chip（此时显示「准备中…」） | 暂停生效（1.0.5 前是死控件） | ✅ 代码路径已放开，UI 在 loading 仍可点 |
+| 6 | loading 阶段暂停 | 点「开始朗读」后立刻点 chip（此时显示「准备中…」） | 暂停生效（1.0.5 前是死控件） | ✅ 第 2 轮设备实测：点「开始朗读」后立即点 chip，按钮变「继续朗读」，未 create track（清理时为零帧 track 57）⇒ 完全没出声 |
 | 7 | 朗读中录音 | 播放中按住麦克风开始录音 | 朗读被停止，录音正常开始（互斥） | ✅ Composer 在 beginRecording 前调用 Reader.stopAll() |
 | 8 | 计费 | 观察确认层与完成 Toast | 字符数、金额与 `Billing` 规则一致；每条朗读单独记账 | ✅ 确认层「本段约 N 计费字符」「最高约 ¥…」与 Toast 金额一致 |
 | 9 | API Key 缺失 | 清除 Key 后点朗读 | 提示「填入 API Key 后才能使用官方朗读」并打开设置 | ✅ 逻辑未变 |
