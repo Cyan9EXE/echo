@@ -5,9 +5,13 @@ import kotlin.math.abs
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -97,6 +101,7 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
     var askTts by remember(m.id) { mutableStateOf(false) }
     // 只在“有无正文”翻转时重组父气泡，流式 token 不再每帧触发整块重组（R4-P1-3）。
     val answerStarted by remember(m.id) { derivedStateOf { m.text.isNotBlank() } }
+    val hasThinking by remember(m.id) { derivedStateOf { m.thinking.isNotBlank() } }
     val readingThis = Reader.activeId == m.id &&
         (Reader.loading || Reader.speaking || Reader.paused)
     // 暂停优先于 loading：缓冲阶段点暂停后 track 已压住、不会再出声，
@@ -112,7 +117,7 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
     LaunchedEffect(m.id, live) {
         if (live) {
             enter.snapTo(0f)
-            enter.animateTo(1f, tween(180))
+            enter.animateTo(1f, tween(Motion.dur(180, Motion.animationsEnabled)))
         } else {
             enter.snapTo(1f)
         }
@@ -136,13 +141,18 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
         }
         Spacer(Modifier.height(7.dp))
         ThinkingBlock(m, accent, live)
-        if (answerStarted || m.thinking.isBlank()) AnswerText(m, live = live, accent = accent)
+        if (answerStarted || !hasThinking) AnswerText(m, live = live, accent = accent)
         if (m.citations.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             CitationsBlock(m.citations, accent)
         }
-        // 与官方一致：流式生成期间不显示操作区与计费行，生成结束后再出现。
-        if (!live) {
+        // 与官方一致：流式生成期间不显示操作区与计费行，生成结束后淡入出现（P2-6）。
+        AnimatedVisibility(
+            visible = !live,
+            enter = fadeIn(tween(Motion.dur(180, Motion.animationsEnabled))),
+            exit = fadeOut(tween(Motion.dur(120, Motion.animationsEnabled))),
+        ) {
+            Column {
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ActionChip("复制") {
@@ -186,6 +196,7 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
                     "本轮 " + fmtCny(shownCost) + usageText,
                     color = C.Muted, fontSize = 10.sp, fontFamily = FontFamily.Monospace,
                 )
+            }
             }
         }
     }
@@ -247,11 +258,13 @@ internal fun ReadControl(
 @Composable
 internal fun ThinkingBlock(m: Msg, accent: Color, live: Boolean) {
     val thinking = m.thinking
-    val answerStarted = m.text.isNotBlank()
+    // 只订阅「是否已开始正文」这一个布尔，避免每个 token 都重组整块（P2-5）。
+    val answerStarted by remember(m.id) { derivedStateOf { m.text.isNotBlank() } }
     // While waiting for the first token the official app still shows a small
     // "正在思考" header; once the answer starts it collapses to one line.
     if (thinking.isBlank() && (!live || answerStarted)) return
-    var open by remember(m.id) { mutableStateOf(true) }
+    // 历史消息默认收起；正在生成的这一条默认展开（P2-5）。
+    var open by remember(m.id) { mutableStateOf(live) }
     var collapsedOnce by remember(m.id) { mutableStateOf(false) }
     val scroll = rememberScrollState()
     LaunchedEffect(live, answerStarted) {
@@ -260,19 +273,25 @@ internal fun ThinkingBlock(m: Msg, accent: Color, live: Boolean) {
             open = false
         }
     }
-    // Pin the panel to its newest line while expanded. The window below is a
-    // fixed-height box, so the list item stops resizing on every token.
+    // Pin the panel to its newest line while expanded. The body below is a
+    // bounded-height window, so the list item stops resizing on every token.
     LaunchedEffect(live, open) {
         if (live && open) {
             snapshotFlow { scroll.maxValue }.collect { scroll.scrollTo(it) }
         }
     }
     val title = when {
-        !answerStarted -> "正在思考"
+        live && !answerStarted -> "正在思考"
         m.thinkingMs > 0L -> "已思考（用时 " + (((m.thinkingMs + 500) / 1000).coerceAtLeast(1)) + " 秒）"
         else -> "已思考"
     }
-    Surface(color = C.Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 9.dp)) {
+    Surface(
+        color = C.Panel,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 9.dp)
+            // 展开/收起用尺寸动画过渡，不再硬切（P2-6）。
+            .animateContentSize(animationSpec = tween(Motion.dur(200, Motion.animationsEnabled))),
+    ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, color = C.Muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
@@ -286,8 +305,8 @@ internal fun ThinkingBlock(m: Msg, accent: Color, live: Boolean) {
             }
             if (open && thinking.isNotBlank()) {
                 Spacer(Modifier.height(5.dp))
-                // A trailing window keeps per-token layout bounded; the fixed max
-                // height keeps the bubble from growing/shrinking every frame.
+                // A trailing window keeps per-token layout bounded; the max height
+                // stops the list item from resizing on every token.
                 val body = if (live) thinking.takeLast(1400) else thinking
                 Text(
                     body,

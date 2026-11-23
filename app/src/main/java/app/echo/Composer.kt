@@ -3,8 +3,11 @@ package app.echo
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -140,7 +143,7 @@ internal fun Composer(state: AppState, accent: Color) {
     val ready = text.isNotBlank()
     val ignite by animateFloatAsState(
         targetValue = if (ready) 1f else 0f,
-        animationSpec = spring(dampingRatio = .8f, stiffness = 420f),
+        animationSpec = if (Motion.animationsEnabled) spring(dampingRatio = .8f, stiffness = 420f) else snap(),
         label = "sendIgnite",
     )
     Column(
@@ -179,7 +182,13 @@ internal fun Composer(state: AppState, accent: Color) {
                         )
                     }
                     Spacer(Modifier.width(8.dp))
-                    if (state.isStreaming(state.currentId)) {
+                    // 发送/停止按钮以前是硬切；用极短的交叉淡入切换（P2-6）。
+                    Crossfade(
+                        targetState = state.isStreaming(state.currentId),
+                        animationSpec = tween(Motion.dur(140, Motion.animationsEnabled)),
+                        label = "sendStop",
+                    ) { streamingNow ->
+                    if (streamingNow) {
                         Pressable(
                             onClick = { state.stopGenerating() },
                             modifier = Modifier.size(44.dp),
@@ -229,6 +238,7 @@ internal fun Composer(state: AppState, accent: Color) {
                                 if (ignite < .5f) SendGlyph(Modifier.size(20.dp), C.Muted)
                             }
                         }
+                    }
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {

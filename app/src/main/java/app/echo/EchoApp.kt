@@ -59,45 +59,31 @@ import androidx.compose.runtime.setValue
 
 @Composable
 fun EchoApp(state: AppState) {
-    val motionOn = remember { ValueAnimator.areAnimatorsEnabled() }
-    Motion.animationsEnabled = motionOn
-    val themeAnim = remember { Animatable(C.themeProgress) }
-    LaunchedEffect(C.isDay, motionOn) {
-        val target = if (C.isDay) 1f else 0f
-        val delta = kotlin.math.abs(C.Void.luminance() - C.voidLuminanceFor(C.isDay, C.eyeMode))
-        themeAnim.animateTo(
-            targetValue = target,
-            animationSpec = tween(
-                Motion.crossfade(260, delta, motionOn),
-                easing = if (delta > 0.35f) Motion.CALM else Motion.STANDARD,
-            ),
-        ) { C.themeProgress = C.shapeProgress(value) }
-    }
-    val eyeAnim = remember { Animatable(C.eyeProgress) }
-    LaunchedEffect(C.eyeMode, C.isDay, motionOn) {
-        val eyeTarget = if (C.isDay) C.eyeMode else 0
-        val delta = kotlin.math.abs(C.Void.luminance() - C.voidLuminanceFor(C.isDay, eyeTarget))
-        eyeAnim.animateTo(
-            targetValue = if (C.isDay && C.eyeMode != 0) 1f else 0f,
-            animationSpec = tween(Motion.crossfade(300, delta, motionOn), easing = Motion.STANDARD),
-        ) { C.eyeProgress = value }
-    }
-    val accentAnim = remember { Animatable(state.skinIndex.toFloat()) }
-    LaunchedEffect(state.skinIndex, motionOn) {
-        val last = C.skins.lastIndex
-        val fromIndex = accentAnim.value.toInt()
-        val delta = if (fromIndex in 0..last && state.skinIndex in 0..last) {
-            kotlin.math.abs(
-                C.presetAccent(fromIndex).luminance() - C.presetAccent(state.skinIndex).luminance()
-            )
-        } else 0f
-        accentAnim.animateTo(
-            targetValue = state.skinIndex.toFloat(),
-            animationSpec = tween(Motion.crossfade(220, delta, motionOn), easing = Motion.STANDARD),
-        )
+    // 系统动画开关是静态查询：每次重组读一次，切到「关闭动画」后下一次重组即生效（P2-6）。
+    val motionOn = ValueAnimator.areAnimatorsEnabled()
+    SideEffect { Motion.animationsEnabled = motionOn }
+    // 主题色是全局静态 token，若逐帧插值，每一帧都会让读取颜色的整棵树重组（P2-6）。
+    // 这里改为一次性换色，再用只在绘制阶段取值的 alpha 做 180ms 淡入：
+    // 切换只触发一次重组 + 一段纯绘制动画，运行中开关混动也会立即生效。
+    val themeFade = remember { Animatable(1f) }
+    var themeInitialized by remember { mutableStateOf(false) }
+    LaunchedEffect(
+        C.isDay, C.eyeMode, C.customThemeOn, state.skinIndex, state.customAccent, motionOn,
+    ) {
+        val wantDay = if (C.isDay) 1f else 0f
+        val wantEye = if (C.isDay && C.eyeMode != 0) 1f else 0f
+        C.themeProgress = wantDay
+        C.eyeProgress = wantEye
+        if (themeInitialized && motionOn) {
+            themeFade.snapTo(0f)
+            themeFade.animateTo(1f, tween(180, easing = Motion.STANDARD))
+        } else {
+            themeFade.snapTo(1f)
+        }
+        themeInitialized = true
     }
     // 自定义强调色不走预设色阶，直接取用户选的颜色。
-    val accent = if (state.customMode) Color(state.customAccent) else C.accentAt(accentAnim.value)
+    val accent = if (state.customMode) Color(state.customAccent) else C.presetAccent(state.skinIndex)
     val baseDensity = LocalDensity.current
     val textDensity = Density(baseDensity.density, baseDensity.fontScale * state.fontScale)
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -165,6 +151,8 @@ fun EchoApp(state: AppState) {
                 targetState = state.current != null,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
                     translationX = 12.dp.toPx() * drawerParallax
+                    // 只在绘制阶段读取，主题切换的淡入不会触发逐帧重组（P2-6）。
+                    alpha = themeFade.value
                 },
                 transitionSpec = {
                     (fadeIn(tween(Motion.dur(200, motionOn))) +
@@ -191,7 +179,7 @@ fun EchoApp(state: AppState) {
             }
             AnimatedVisibility(
                 visible = state.showDrawer,
-                enter = slideInHorizontally(spring(dampingRatio = .86f, stiffness = 320f)) { -it },
+                enter = slideInHorizontally(tween(Motion.dur(240, motionOn), easing = Motion.STANDARD)) { -it },
                 exit = slideOutHorizontally(tween(Motion.dur(220, motionOn), easing = Motion.EXIT)) { -it },
             ) {
                 DrawerPanel(
@@ -314,8 +302,10 @@ fun EchoApp(state: AppState) {
             LaunchedEffect(state.notice) { state.notice?.let { lastNotice = it } }
             AnimatedVisibility(
                 visible = state.notice != null,
-                enter = slideInVertically(spring(dampingRatio = 1f, stiffness = 500f)) { it / 3 } + fadeIn(tween(140)),
-                exit = slideOutVertically(tween(170)) { it / 3 } + fadeOut(tween(150)),
+                enter = slideInVertically(tween(Motion.dur(240, motionOn), easing = Motion.STANDARD)) { it / 3 } +
+                    fadeIn(tween(Motion.dur(140, motionOn))),
+                exit = slideOutVertically(tween(Motion.dur(170, motionOn), easing = Motion.EXIT)) { it / 3 } +
+                    fadeOut(tween(Motion.dur(150, motionOn))),
                 modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp).padding(bottom = 96.dp),
             ) {
                 Surface(

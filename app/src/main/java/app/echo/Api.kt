@@ -151,7 +151,7 @@ internal fun pumpSse(
 object ApiClient {
     private val main = Handler(Looper.getMainLooper())
 
-    private const val FLUSH_INTERVAL_MS = 16L
+    // 流式刷新只有按字节阈值 + 外部传入的 flushMs 两道门；时间常量已不再使用（P3-1）。
     private const val FLUSH_BYTES = 4096
     const val DEFAULT_MAX_TOKENS = 32_768
     const val MIN_MAX_TOKENS = 4_096

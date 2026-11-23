@@ -1000,45 +1000,76 @@ internal fun MarkdownText(text: String, live: Boolean = false, accent: Color = C
         }
         return
     }
-    val segments = remember(text) { MdParser.splitSegments(text) }
+    // 流式尾部：稳定段只在新增换行时重新切段/解析，尾行按纯文本渲染并限制在
+    // 最后 [STREAM_TAIL_MAX] 字符窗口内。这样单个 8K 长段落也不会每 token
+    // 重新切段 + 重新排版全文（P2-1）。
+    val split = remember { StreamSplit() }
+    val frame = remember(text) { split.frame(text) }
     Column(Modifier.fillMaxWidth()) {
-        segments.forEachIndexed { segmentIndex, segment ->
+        frame.stable.forEachIndexed { segmentIndex, segment ->
             key(segment.start) {
-                if (segmentIndex == segments.lastIndex) {
-                    // 尾段是唯一还在增长的部分：以最后一个换行为界，稳定前部只在新行
-                    // 落定时解析一次，尾行按纯文本渲染。这样每个 token 不再触发整段
-                    // parse，8K 文本从 O(n²) 降为按行更新（R4-P1-3）。
-                    val t = segment.text
-                    val cut = t.lastIndexOf('\n')
-                    if (cut > 0) {
-                        MarkdownText(t.substring(0, cut), live = false, accent = accent)
-                        PlainStreamText(t.substring(cut), accent)
-                    } else {
-                        PlainStreamText(t, accent)
-                    }
-                } else {
-                    val blocks = remember(segment.text) { MdParser.parse(segment.text) }
-                    blocks.forEachIndexed { blockIndex, block ->
-                        MdBlockView(
-                            block = block,
-                            first = blockIndex == 0 && segmentIndex == 0,
-                            caret = false,
-                            accent = accent,
-                            base = base,
-                        )
-                    }
+                val blocks = remember(segment.text) { MdParser.parse(segment.text) }
+                blocks.forEachIndexed { blockIndex, block ->
+                    MdBlockView(
+                        block = block,
+                        first = blockIndex == 0 && segmentIndex == 0,
+                        caret = false,
+                        accent = accent,
+                        base = base,
+                    )
                 }
             }
         }
+        if (frame.newline > frame.tailStart) {
+            key(frame.newline, frame.tailStart) {
+                MarkdownText(frame.prefix, live = false, accent = accent)
+            }
+        }
+        val windowStart = maxOf(frame.newline, text.length - STREAM_TAIL_MAX)
+        val tailLine = if (windowStart <= 0) text else text.substring(windowStart)
+        PlainStreamText(tailLine, accent, truncated = windowStart > frame.newline)
     }
 }
 
+/** 流式渲染的增量切段状态：只有新增换行才重新跑一次 [MdParser.splitSegments]。 */
+private class StreamSplit {
+    private var prevLen = -1
+    private var stable: List<MdSegment> = emptyList()
+    private var tailStart = 0
+    private var newline = -1
+    private var prefix = ""
+
+    data class Frame(
+        val stable: List<MdSegment>,
+        val tailStart: Int,
+        val newline: Int,
+        val prefix: String,
+    )
+
+    fun frame(text: String): Frame {
+        val fresh = prevLen < 0 || text.length < prevLen || text.indexOf('\n', prevLen) >= 0
+        if (fresh) {
+            val all = MdParser.splitSegments(text)
+            stable = if (all.size <= 1) emptyList() else all.subList(0, all.size - 1)
+            tailStart = if (all.isEmpty()) text.length else all.last().start
+            newline = text.lastIndexOf('\n')
+            prefix = if (newline > tailStart) text.substring(tailStart, newline) else ""
+        }
+        prevLen = text.length
+        return Frame(stable, tailStart, newline, prefix)
+    }
+}
+
+/** 尾行窗口：流式时只渲染最后这一段字符，避免单行 8K 每 token 全文排版。 */
+private const val STREAM_TAIL_MAX = 800
+
 @Composable
-private fun PlainStreamText(text: String, accent: Color) {
+private fun PlainStreamText(text: String, accent: Color, truncated: Boolean = false) {
     // 光标是静态字符，不进无限闪烁动画：每帧重建 AnnotatedString 会让正文
     // 每 110 ms 重新排版一次，正是流式卡顿的一项成本（R4-P1-3）。
-    val annotated = remember(text) {
+    val annotated = remember(text, truncated) {
         buildAnnotatedString {
+            if (truncated) append("\u2026")
             append(text)
             withStyle(SpanStyle(color = accent)) { append("\u258d") }
         }

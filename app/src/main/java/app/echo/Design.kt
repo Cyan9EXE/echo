@@ -3,6 +3,7 @@ package app.echo
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.semantics.contentDescription
@@ -162,14 +163,15 @@ internal fun Pressable(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    // 按压反馈也必须尊重系统的「关闭动画」；开启时统一用 Motion 的时长/曲线（P2-6）。
     val s by animateFloatAsState(
         targetValue = if (pressed) scale else 1f,
-        animationSpec = spring(dampingRatio = .6f, stiffness = 900f),
+        animationSpec = if (Motion.animationsEnabled) spring(dampingRatio = .6f, stiffness = 900f) else snap(),
         label = "pressScale",
     )
     val wash by animateFloatAsState(
         targetValue = if (pressed) 1f else 0f,
-        animationSpec = tween(110),
+        animationSpec = tween(Motion.dur(110, Motion.animationsEnabled)),
         label = "pressWash",
     )
     val haptics = LocalHapticFeedback.current
@@ -338,12 +340,12 @@ internal fun TapTarget(
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) .94f else 1f,
-        animationSpec = spring(dampingRatio = .58f, stiffness = 900f),
+        animationSpec = if (Motion.animationsEnabled) spring(dampingRatio = .58f, stiffness = 900f) else snap(),
         label = "tapScale",
     )
     val haze by animateFloatAsState(
         targetValue = if (pressed) 1f else 0f,
-        animationSpec = tween(110),
+        animationSpec = tween(Motion.dur(110, Motion.animationsEnabled)),
         label = "tapHaze",
     )
     val haptics = LocalHapticFeedback.current

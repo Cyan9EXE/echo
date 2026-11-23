@@ -457,6 +457,10 @@ class AppState(private val context: Context) {
         typing = false
         var session = current
         if (session != null) ensureReadyBlocking(session)
+        if (session != null && !session.messages.ready) {
+            notice = "会话内容还在载入，请稍候再发送。"
+            return false
+        }
         if (session != null && session.expired && !session.revived) {
             notice = "这段对话已失效：先点「复活并继续」，恢复完整上下文后再发送。"
             return false
@@ -548,6 +552,13 @@ class AppState(private val context: Context) {
                     thinkingBuf.append(chunk)
                     schedulePublish()
                     bumpRevisionThrottled()
+                    // 思考内容以前从不落盘，思考中杀进程会整段丢失（P2-4）。
+                    val nowUptime = android.os.SystemClock.uptimeMillis()
+                    if (nowUptime - lastStreamSaveAt >= 2_000L) {
+                        lastStreamSaveAt = nowUptime
+                        markDirty(sessionId)
+                        scheduleSave()
+                    }
                 }
             },
             onCitation = { c ->
@@ -645,11 +656,16 @@ class AppState(private val context: Context) {
         streamSessionId = null
         refreshContextTokens()
         revision++
-        scheduleSave()
+        // 停止是终态：立即落盘，而不是等 260/700ms 的防抖（P2-4）。
+        save()
     }
 
     fun revive(session: Session, mode: String = "full") {
         ensureReadyBlocking(session)
+        if (!session.messages.ready) {
+            notice = "会话内容还在载入，请稍候再复活。"
+            return
+        }
         session.revived = true
         val total = historyMessages(session).size
         if (mode == "summary" && total > 40) {
@@ -1322,10 +1338,16 @@ class AppState(private val context: Context) {
         }
         parsingIds.add(s.id)
         io.execute {
-            val ok = runCatching { parseSessionRecord(f, s) }.isSuccess
+            // 解析（JSON → Msg 列表）在 IO 线程；把结果提交给 Compose 状态必须在主线程，
+            // 否则 UI 可能读到写了一半的 MessageList（P2-2）。
+            val record = readSessionRecord(f)
             main.post {
                 parsingIds.remove(s.id)
-                if (!ok) s.messages.markEmpty()
+                if (record == null) {
+                    s.messages.markEmpty()
+                } else {
+                    runCatching { applyParsedRecord(record, s) }.onFailure { s.messages.markEmpty() }
+                }
                 if (s.id == currentId) {
                     refreshContextTokens()
                     revision++
@@ -1339,6 +1361,11 @@ class AppState(private val context: Context) {
         val f = msgFile(s.id)
         if (!f.exists()) {
             s.messages.markEmpty()
+            return
+        }
+        // 大会话不在主线程同步解析：转异步载入，调用方看到 ready=false 后提示稍候（P2-3）。
+        if (f.length() > 48_000L) {
+            ensureReadyForUi(s)
             return
         }
         runCatching { parseSessionRecord(f, s) }.onFailure { s.messages.markEmpty() }
@@ -1355,8 +1382,17 @@ class AppState(private val context: Context) {
         return out
     }
 
+    /** 只做 JSON 读取；[applyParsedRecord] 必须在主线程执行。 */
+    private fun readSessionRecord(f: File): JSONObject? =
+        runCatching { JSONObject(f.readText()) }.getOrNull()
+
     private fun parseSessionRecord(f: File, s: Session) {
-        val o = JSONObject(f.readText())
+        val o = readSessionRecord(f) ?: run { s.messages.markEmpty(); return }
+        applyParsedRecord(o, s)
+    }
+
+    /** 主线程应用解析结果：MessageList 的 loaded 只在主线程写，避免 UI 读普通 ArrayList 竞争（P2-2）。 */
+    private fun applyParsedRecord(o: JSONObject, s: Session) {
         val arr = o.optJSONArray("messages") ?: JSONArray()
         val list = ArrayList<Msg>(arr.length())
         for (i in 0 until arr.length()) {

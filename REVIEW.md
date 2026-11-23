@@ -137,19 +137,31 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 ### REVIEW-LOOP 第 4 轮（外部审查 → 修复，2026-11-23）
 
 - **外部审查**：以 HEAD c658e4d（工作树干净）为对象做只读复审，报告 `review/rounds/echo-1.0.5-round4-review.md`（29,268 B）。结论：P0 = 0、P1 = 3、P2 = 8、P3 = 7，**不通过**；三个 P1 都指向流式手感与长文成本。
-- **P1-1 正文刷新频率不足**：`State.kt` 的 publish 门（120/70ms）+ `Api.kt` 的 flush（60/45ms）叠加后，正文可见更新上限只有正常 8.3 fps / 性能 14.3 fps。本轮改为 `Choreographer` 帧回调合并发布（同一帧只 publish 一次，正常 16ms / 性能 33ms 上限），`Api.kt` 的 `FLUSH_INTERVAL_MS` 60→16、`FLUSH_BYTES` 8192→4096，`stream()` 的 `flushMs` 默认 60→16；终态先 `removeFrameCallback` 再强制 publish，避免丢最后一帧。
+- **P1-1 正文刷新频率不足**：`State.kt` 的 publish 门（120/70ms）+ `Api.kt` 的 flush（60/45ms）叠加后，正文可见更新上限只有正常 8.3 fps / 性能 14.3 fps。本轮改为 `Choreographer` 帧回调合并发布（同一帧只 publish 一次，正常 16ms / 性能 33ms 上限），`Api.kt` 的 flush 间隔 60→16（该常量在第 5 轮已删，只保留字节阈值 `FLUSH_BYTES = 4096`），`stream()` 的 `flushMs` 默认 60→16；终态先 `removeFrameCallback` 再强制 publish，避免丢最后一帧。
 - **P1-2 跳底不是逐帧**：原实现每 90/60ms `scrollToItem(Int.MAX_VALUE)`，会把用户上滑的意图抢回来。本轮改为 `withFrameNanos` 逐帧计算 `scrollBy` 增量，并用 `snapshotFlow { isScrollInProgress }` + 末端 gap ≤ 2f 的判定维护 `followTail`：拖动时暂停跟随，停止且已贴底后自动恢复。
 - **P1-3 长文 O(n²)**：流式时整段 `remember(text) { splitSegments }` + 最后一段每 token 全量 parse，caret 还由 110ms 闪烁重建 AnnotatedString 触发重排。本轮改为：最后一个 segment 以最后一个换行切成稳定前缀（`MarkdownText(live = false)`）与未闭合尾行（新增 `PlainStreamText`，纯文本、静态 caret），稳定段按 segment 文本缓存；删除 `blinkAlpha()`，caret 用固定 alpha；`AssistantBubble` 用 `derivedStateOf { m.text.isNotBlank() }` 避免父层每 token 重组。
 - **其余修复**：暂停 → 停止语义统一（`State.kt` / `Composer.kt` 文案与 README）；`MessageList.markReady(list): Boolean`，异步解析晚到时先 markReady 再写摘要/字数，避免元数据回退；入场/呼吸/TypingDots 改有限次动画，`Motion.animationsEnabled=false` 时直接终态；`docs/qa/tts.md`、README、REVIEW、ARCHITECTURE 口径同步（帧同步发布、稳定段、APK/sha）。
 - **验证**：`compileDebugKotlin` 通过；JVM 单测 **99 例 0 失败**；release 从 HEAD `5aa0eda` 重建为 1,443,981 B、SHA-256 `881c38aa1b60b27666ca4a736136e60f819e102d5c12d318dc1814f574f4e8ac`（mtime 2026-11-23 22:48）。本轮真机已断开（adb devices 为空），安装与设备复验未执行，设备证据仍来自旧包 `e7e59e10…` / `900ba8c8…`。
 - **残留**：P2-3 主题过渡仍由全局 `C.themeProgress` 每帧驱动；P2-4 动画连续性；P2-7 缺流式 benchmark；P2-8 主线程 `ensureReadyBlocking` / 索引保存。第 5 轮复审待发起。
 
+### REVIEW-LOOP 第 5 轮（外部审查 → 修复，2026-11-23）
+
+- **外部审查**：以文档 HEAD 0a6b5d3 / 代码提交 5aa0eda 为对象做只读复审，报告 `review/rounds/echo-1.0.5-round5-review.md`（204 行 / 23,804 B）。结论：P0 = 0、P1 = 1、P2 = 8、P3 = 6，**不通过**；唯一 P1 是「向长会话发送新消息后贴底失效」。
+- **P1-1 跟底失效**：帧循环把「最后可见项 == 最后一项」当作是否继续跟随的总开关，而 `send()` 先插入 user + 空 assistant，新消息使旧最后可见项 `index = total-3`，永不等于 `total-1`，overflow 永不计算，也没有任何路径把新尾滚入视口。本轮改为：`followTail` 仍是唯一开关；循环内先算 `tailRescueIndex(last.index, total)`，需要时 `scrollToItem(total-1, Int.MAX_VALUE)` 再继续逐帧 `scrollBy`。新增 `FollowTailTest` 4 例（`app/src/test/java/app/echo/FollowTailTest.kt`）。
+- **P2-1 Markdown 尾段**：`Markdown.kt` 新增 `StreamSplit`，只在换行推进或长度回退时重切段；尾行只渲染最后 800 字符窗口（`STREAM_TAIL_MAX`），超出前置省略号；稳定段按 segment 文本缓存。
+- **P2-2 / P2-3 跨线程与主线程解析**：异步解析改为 io 线程只读文件文本（`readSessionRecord`），回主线程 `applyParsedRecord` 写状态；`ensureReadyBlocking` 对 >48KB 会话转异步；`send` / `revive` 在正文未 ready 时提示「稍候」而不是同步解析。
+- **P2-4 落盘窗口**：`stopGenerating()` 立即 `save()`（不再等 260/700ms 防抖）；思考流按 2s 节流 `markDirty` + `scheduleSave()`。
+- **P2-5 / P2-6 动画与主题**：`Motion.animationsEnabled` 改为 Compose 状态并在每次重组用 `SideEffect` 同步；主题改为颜色一次性切换 + 绘制阶段 alpha 淡入（删除逐帧全树读值的 themeProgress 插值）；思考块 `animateContentSize`、历史默认收起、「正在思考」只在 live 显示；操作区 `AnimatedVisibility`；live item 恢复 `animateItem()`；Composer 发送↔停止 `Crossfade`；`Pressable` / `ActionChip` / 入场 / notice 统一走 `Motion`，`animationsEnabled=false` 时 `snap()`。
+- **P3-1**：删除已无引用的 `Api.kt` `FLUSH_INTERVAL_MS`，保留 `FLUSH_BYTES = 4096` + 外部 `flushMs` 两道门。
+- **验证**：`compileDebugKotlin` 通过；JVM 单测 **103 例 0 失败**（新增 `FollowTailTest` 4 例）；release 从工作树重建为 1,460,365 B、SHA-256 `8b0e5f72313a05e396b8505847bb4ff4453e0b69d5a59cee191a3229210d2918`（mtime 2026-11-23 23:49）。本轮 `adb devices` 为空（真机 LQAVP23928C105TX 未连接），装机冒烟、跟底真机复验与 gfxinfo 性能证据未执行。
+- **残留**：P2-7 仍缺 Compose UI 测试与 Macrobenchmark；P3-2 caret 死代码、P3-3 注释与入场动画、P3-4 notice 硬编码时长、P3-5 魔数与程序化滚动判定、P3-6 历史行号引用，留下版清理。第 6 轮复审待发起。
+
 ### 性能（真机实测，0.9.2 / versionCode 13）
 
 - **上下文条轮询**：流式生成时每 500ms 刷新 token 估算。原实现每次都遍历整段会话（`historyMessages()` 过滤 + `sumOf`，长会话持续产生临时 List/String 垃圾）；现在发送时缓存历史字符数 `contextBaseChars`，轮询只叠加当前回复的 `text.length`（O(1)），`onDone/onError/stopGenerating` 再全量校准一次。`refreshContextTokens()` 移到 `streaming = true` 之后调用，缓存才会生效。
 - **冷启动**：baseline profile 引导的 speed-profile AOT 中位 400 ms（verify 489 ms，约 -18%）。
 - **对话滚动**（536 轮「意识」会话，连续上/下各 8 次 swipe，`dumpsys gfxinfo`）：Total frames 723–766，modern jank 0.55%–2.65%（多轮中位约 2.2%），90th/99th percentile 11–13 ms。曾出现一次 50%+ 的异常轮：`Slow issue draw commands` 368 而 `Slow UI thread` 仅 29，判断为系统侧 GPU/窗口干扰（Huawei 系统进程），不是应用主线程卡顿。
-- **已确认无隐藏热点**：入场 / 呼吸 / TypingDots 均为有限次动画，系统「移除动画」时 `Motion.animationsEnabled=false` 直接进终态，无逐帧无限动画；抽屉列表 `computeDrawerView` 走 `derivedStateOf`；`revision` 只在抽屉派生缓存读取（流式 publish 不会整屏重组）；会话索引在 `echo-store` 单线程解析；`KeyVault` 只在有 Key 时才访问 Keystore；欢迎页入场动画走 `graphicsLayer` lambda（绘制阶段读值，不触发重组）。
+- **当时的无隐藏热点判断（第 4 轮）**：入场 / 呼吸 / TypingDots 均为有限次动画，系统「移除动画」时 `Motion.animationsEnabled=false` 直接进终态，无逐帧无限动画；第 5 轮复审又指出 Markdown 尾段全量重建与主题逐帧过渡仍属热点，已在本轮修复（见上节）；抽屉列表 `computeDrawerView` 走 `derivedStateOf`；`revision` 只在抽屉派生缓存读取（流式 publish 不会整屏重组）；会话索引在 `echo-store` 单线程解析；`KeyVault` 只在有 Key 时才访问 Keystore；欢迎页入场动画走 `graphicsLayer` lambda（绘制阶段读值，不触发重组）。
 - **模式差异**：性能模式（设置 → 运行模式）把存储线程提到 NORM、流式发布帧上限 33ms、保存延迟 260ms、更多会话常驻；正常模式 MIN/16ms、700ms、更积极 evict。
 
 ## 5. 已知限制
@@ -157,7 +169,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - Markdown/LaTeX 由自研 `Markdown.kt` 渲染，属手写子集：不支持表格、图片、嵌套列表；块级公式有一定布局开销。流式时最后未闭合段以纯文本尾行渲染，回答完成后整体 Markdown 排版。
 - 导入按会话 id 合并去重，只保留当前分支；附件与图片不会重传。
 - 全会话 ZIP 导出无进度条、不可取消（< 10 s，可接受）；单会话导出整份 JSON 解析，存在内存峰值。
-- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 99 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
+- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 103 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
 - ~~release 使用 debug 签名~~ → 1.0.0 起使用正式 release keystore（证书指纹见第 8 节）；无密钥时仍回退 debug，仅限本地内测。
 - ~~联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路~~ → 1.0.2 已打通：服务端执行搜索，客户端收到 `citations_delta` 并在回答末尾渲染「来源」（§4 真 Key 冒烟）。
 - 性能数据以真机（LQAVP23928C105TX，90Hz 档）为准；模拟器是软件渲染，其 gfxinfo jank 比例不作指标。
@@ -197,7 +209,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 **构建产物**
 
-- **1.0.5 / versionCode 6**（TTS 朗读重写：官方 24 kHz 流经 Up2 半带 FIR 升采样到 48 kHz 输出，track buffer 64 KB / prebuffer 32 KB，修复 1.0.4 的噪声与 1.0.5 首版 48k 播放的缓冲超时静音；横屏欢迎页紧凑布局、旋转不重建 Activity、输入草稿 rememberSaveable；COLOR-V3 五色主题与蓝白 1.6:1 命令提示符图标；REVIEW-LOOP 第 1–4 轮修复）：`app/build/outputs/apk/release/app-release.apk`，1,443,981 B，mtime 2026-11-23 22:48（第 4 轮修复后从 HEAD `5aa0eda` 重建；本轮真机断开，设备复验证据来自前一包 `e7e59e10…` / `900ba8c8…`，流式渲染路径只做 JVM 编译与单测验证）；SHA-256 `881c38aa1b60b27666ca4a736136e60f819e102d5c12d318dc1814f574f4e8ac`；emulator-5554 安装记录 versionCode=6 / versionName=1.0.5（旧包）；AudioFlinger 取证与 QEMU 抓音见 §4「TTS 48k 重采样与静音修复」。
+- **1.0.5 / versionCode 6**（TTS 朗读重写：官方 24 kHz 流经 Up2 半带 FIR 升采样到 48 kHz 输出，track buffer 64 KB / prebuffer 32 KB，修复 1.0.4 的噪声与 1.0.5 首版 48k 播放的缓冲超时静音；横屏欢迎页紧凑布局、旋转不重建 Activity、输入草稿 rememberSaveable；COLOR-V3 五色主题与蓝白 1.6:1 命令提示符图标；REVIEW-LOOP 第 1–5 轮修复）：`app/build/outputs/apk/release/app-release.apk`，1,460,365 B，mtime 2026-11-23 23:49（第 5 轮修复后从工作树重建，含跟底救援、Markdown 流式尾窗、落盘与动画修复；真机断开，设备复验证据仍来自旧包 `e7e59e10…` / `900ba8c8…`，流式与跟底路径只做 JVM 编译与单测验证）；SHA-256 `8b0e5f72313a05e396b8505847bb4ff4453e0b69d5a59cee191a3229210d2918`；emulator-5554 安装记录 versionCode=6 / versionName=1.0.5（旧包）；AudioFlinger 取证与 QEMU 抓音见 §4「TTS 48k 重采样与静音修复」。
 - **1.0.3 / versionCode 4**（协议回归 + 本地 CI 演练：把请求体拼装与 SSE 循环从 `ApiClient.stream` 抽成纯函数 `buildChatBody` / `pumpSse`，新增 `ProtocolTest.kt` 15 例；`scripts/run_tests.sh --smoke` 本地跑通编译 + 91 单测 + mock 自检 + normal/truncated/429 冒烟）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:40；SHA-256 `d2c6f62a89f839d6341ca84f196167a24d5fa1ef40e09d762e91d9940e67a42c`；emulator-5554 安装后 dumpsys 显示 versionCode=4 / versionName=1.0.3；重构后真机 ping 冒烟正常（回复「Pong! 🏓」，「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错）。
 - **1.0.2 / versionCode 3**（导入文案纠错：答疑中心与导入 FAQ 由「会覆盖本机全部会话」改为「按会话 ID 合并、已存在跳过、附件不导入、全程不上传」，与导入实现口径一致）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:29；SHA-256 `fbb19241fdfd9c8adf211d63e382d45193f3ea6b848264adc2721f9dd8e2f78b`；emulator-5554 安装后 dumpsys 显示 versionCode=3 / versionName=1.0.2（lastUpdateTime 2026-11-23 09:30:06）；导入气泡、导入 FAQ 与答疑中心两条新文案均真机核对。
 - **1.0.1 / versionCode 2**（导出打磨：`unsafeNameChars` 去半角逗号、单会话导出 notice 改为「已导出 Markdown 文件」）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 08:38:17；SHA-256 `b524753d18276cc416c5882cef461125d80138a3e174dd9254659c67b0ec0836`；apksigner 校验 signer 证书 SHA-256 与上节一致；emulator-5554 安装后 dumpsys 显示 versionCode=2 / versionName=1.0.1（lastUpdateTime 2026-11-23 08:38:32）。
@@ -209,6 +221,6 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 - 新增 LICENSE（MIT，2026 Echo contributors）与 NOTICE（Compose/Kotlin/AndroidX/Apache-2.0 归属；Echo 名称/图标/视觉资产保留所有权利）。
 - README 重写：品牌边界、AI 辅助 AS IS、免费非商业但 MIT 允许任何用途、维护边界（不做云同步/账号/后端/广告/内购/非公开接口）、AOT 表述改为“profile 引导、机器码设备本地生成”。
-- 已知限制与进度同步：Markdown/LaTeX 渲染、单会话 Markdown 与全会话 ZIP 导出、README 八张实拍截图、导出文件名安全化、协议正确性（Sse.kt / maxTokens / message_stop 校验）、导入健壮性与兼容层文档（docs/protocol-compat.md）均已在 1.0.1 完成；1.0.2 修正导入文案口径并补完真 Key 冒烟（联网搜索 citations 全链路已打通，见 §4）；1.0.3 完成协议回归（抽 `buildChatBody`/`pumpSse` + `ProtocolTest` 15 例，总计 91 单测）与本地 CI 演练；1.0.4 重写 TTS 朗读（48 kHz 输出 + 24k→48k 升采样），1.0.5 修复 48k 播放缓冲超时导致的静音，并补横屏欢迎页、旋转不重建、输入草稿保留，以及落地外部审查 REVIEW-LOOP 第 1–4 轮修复（见 §4）。仍在路线图中的是：CI 在 GitHub 实跑（暂不发布）、旧 UI 三项收尾、COLOR-V3 五色强调色落地后的沙金增亮（1.0.6，用户反馈沙金偏暗、预设面板观感不佳）。
+- 已知限制与进度同步：Markdown/LaTeX 渲染、单会话 Markdown 与全会话 ZIP 导出、README 八张实拍截图、导出文件名安全化、协议正确性（Sse.kt / maxTokens / message_stop 校验）、导入健壮性与兼容层文档（docs/protocol-compat.md）均已在 1.0.1 完成；1.0.2 修正导入文案口径并补完真 Key 冒烟（联网搜索 citations 全链路已打通，见 §4）；1.0.3 完成协议回归（抽 `buildChatBody`/`pumpSse` + `ProtocolTest` 15 例，总计 91 单测）与本地 CI 演练；1.0.4 重写 TTS 朗读（48 kHz 输出 + 24k→48k 升采样），1.0.5 修复 48k 播放缓冲超时导致的静音，并补横屏欢迎页、旋转不重建、输入草稿保留，以及落地外部审查 REVIEW-LOOP 第 1–5 轮修复（见 §4）。仍在路线图中的是：CI 在 GitHub 实跑（暂不发布）、旧 UI 三项收尾、COLOR-V3 五色强调色落地后的沙金增亮（1.0.6，用户反馈沙金偏暗、预设面板观感不佳）。
 
 **说明**：本文第 3–5 节中标注 0.9.2 的性能/交互数据来自当时真机（app.xuxie）；1.0.0 仅变更身份与签名，代码行为未变，因此这些数据继续有效；1.0.5 的流式渲染与列表跟随改动及验证见 §3 与 REVIEW-LOOP 小节。

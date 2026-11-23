@@ -1,10 +1,13 @@
 package app.echo
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 
 object Motion {
-    /** 系统「减弱动态」/关闭动画时置 false；所有无限动画与入场动画都应尊重它。 */
-    var animationsEnabled = true
+    /** 系统「减弱动态」/关闭动画时为 false；Compose 状态，切换后读它的界面会重组。 */
+    var animationsEnabled by mutableStateOf(true)
 
     const val BASE = 200
     const val SLOW = 320

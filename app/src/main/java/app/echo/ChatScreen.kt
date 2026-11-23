@@ -140,7 +140,7 @@ internal fun ChatScreen(state: AppState, accent: Color) {
                 s.messages,
                 key = { index, m -> if (s.messages.ready) m.id else "stub" + index },
             ) { _, m ->
-                Box(if (liveId == null) Modifier.animateItem() else Modifier) {
+                Box(Modifier.animateItem()) {
                     if (m.role == "user") UserBubble(m.text) else AssistantBubble(m, accent, state, live = m.id == liveId)
                 }
             }
@@ -163,8 +163,17 @@ internal fun ChatScreen(state: AppState, accent: Color) {
                 withFrameNanos { }
                 if (!followTail || !state.isStreaming(s.id)) continue
                 val info = listState.layoutInfo
+                val total = info.totalItemsCount
+                if (total == 0) continue
                 val last = info.visibleItemsInfo.lastOrNull() ?: continue
-                if (last.index != info.totalItemsCount - 1) continue
+                // 新消息插入后 tail 变了，但“最后可见项”仍是旧的尾部；此时直接
+                // 跳到新尾部，不能把「最后可见项 == 最后一项」当成继续跟底的开关，
+                // 否则永远不会滚到新消息（P1-1）。
+                val rescue = tailRescueIndex(last.index, total)
+                if (rescue != null) {
+                    runCatching { listState.scrollToItem(rescue, Int.MAX_VALUE) }
+                    continue
+                }
                 val overflow = last.offset + last.size -
                     (info.viewportEndOffset - info.afterContentPadding)
                 if (overflow > 0) runCatching { listState.scrollBy(overflow.toFloat()) }
@@ -419,3 +428,10 @@ internal fun ContextBar(state: AppState, accent: Color, onExport: () -> Unit = {
         Spacer(Modifier.height(6.dp))
     }
 }
+
+/**
+ * 跟底时是否需要跳到新尾部：只要「最后可见项」不是最后一项，目标就是最后一项。
+ * 抽成纯函数便于 JVM 单测覆盖「发送后不滚底」「旧尾部残留」等回归（P1-1/P2-7）。
+ */
+internal fun tailRescueIndex(lastVisibleIndex: Int, totalItems: Int): Int? =
+    if (totalItems > 0 && lastVisibleIndex in 0 until totalItems - 1) totalItems - 1 else null
