@@ -73,6 +73,18 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **真机验证**（LQAVP23928C105TX，1080x2388，0.9.2 versionCode 13）：夜间/日间/暖黄/淡绿/白色皮肤（夜）/ 自定义 HSL 逐项截图核对；日间选中第 5 色显示「黑」；冒号指示块四态与预期一致；删除会话立即消失且重启不复活。
 - **构建**：BUILD SUCCESSFUL，release APK 1,373,477 B，sha256 d065b69257cad0a288c0f6b8ff28cd88ab414e94382c322cbc93813ead44705c。
 
+### 导出 / Markdown / 协议正确性 / 导入健壮性（并入 1.0.1 / versionCode 2）
+
+- **导出（Export.kt）**：聊天页 ContextBar「导出」→ 底部两行「导出本会话 Markdown」「导出全部会话 ZIP」；两者都走 SAF CreateDocument，只写用户选定位置，不需要存储权限，导出过程不联网。
+- **文件名安全化**：`unsafeNameChars` 覆盖 `\\/:*?"<>|%#()[]`、半角逗号与控制字符，命中替换为 `-`；真机实测 SAF 默认名 `Echo-Render-markdown-test--sh-20261123-0848.md`（此前会生成 `test,-sh`，部分文件管理器/解压工具对逗号不友好）。
+- **单会话 Markdown**：实测 3015 B；含标题、导出时间、最后活跃、消息数、模型、上下文状态；思考块导出为 `> **思考过程**` 引用；代码保留围栏与语言标签；`[DeepSeek](https://www.deepseek.com)` 链接与 `$...$` / `$$...$$` 公式源码原样保留；文末给出 token 与「本机估算费用」对账行。完成 notice：「已导出 Markdown 文件」。
+- **全会话 ZIP**：实测 19,293,518 B；3812 entries = `index.md`（287,441 字符，含每会话链接与「已失效」标记）+ 3811 个 `sessions/NNNN-标题.md`；`zipfile.testzip()` 无损坏；流式 ZipOutputStream 写出，耗时 < 10 s（无进度条、不可取消，见第 5 节）。
+- **Markdown / LaTeX 渲染（Markdown.kt）**：标题、粗斜删除、行内代码、代码围栏（语言标签 + 横向滚动）、列表、引用递归、分隔线、可点击链接、行内 `$..$` 与块级 `$$..$$` 公式；真机 1080x2340 验证 H1、3 项列表、引用、python 围栏、`E=mc²`、`∫₀¹x²dx=1/3` 排版正确；流式按空行切段、> 8000 字符退化纯文本以保证滚动流畅。
+- **协议正确性（Sse.kt / Api.kt）**：逐事件解析 `content_block_delta`（text/thinking/signature/citations）、`message_start` 部分 usage、`message_delta` 全量 usage + `stop_reason`、`message_stop`、`error`；缺 `message_stop` 且非用户取消时上报「连接提前结束：没有收到 message_stop，内容可能不完整。」并保留已收内容；`maxTokens` 默认 32768（设置可选 8K/16K/32K/64K），`stop_reason=max_tokens` 提示「已达到最大输出长度（可在设置里调高上限）。」；assistant 历史在带 signature 时以 `[thinking, text]` 块回传。
+- **导入健壮性（State.kt）**：只解析 `chat_sessions/*.json`；限额单会话 24 MB、2 万会话、6 万条目、ZIP 2 GB；按会话 id 合并去重（已存在则跳过、不覆盖本机消息文件）；进度浮层「正在导入历史对话 / N% · 状态」+「取消导入」，取消会删除已写入文件并提示「已取消导入，未写入任何会话。」；错误分流「ZIP 内容不完整，可能下载时被截断，请重新导出后再试。」/「这个 ZIP 里没有 chat_sessions 文件夹，可能不是 DeepSeek 官方导出的数据。」/逐文件失败清单。
+- **真机验证（emulator-5554，1080x2340，1.0.1）**：sample-history.zip →「已导入 2 个会话」；重复导入 →「没有新增会话，跳过 2 个已存在的会话」；损坏 ZIP 与不含 `chat_sessions` 的 ZIP 均命中对应文案；801 MB full-export 的导入浮层显示 10% 进度与取消按钮。
+- **单测 / 工装**：76 tests 0 failures（Billing 16 / Format 4 / Sse 19 / Export 9 / Markdown 28）；`scripts/mock_sse_server.py --selftest` 15/15；`.github/workflows/ci.yml` 已就绪但尚未在 GitHub 实跑（用户要求暂不发布）。
+
 ### 性能（真机实测，0.9.2 / versionCode 13）
 
 - **上下文条轮询**：流式生成时每 500ms 刷新 token 估算。原实现每次都遍历整段会话（`historyMessages()` 过滤 + `sumOf`，长会话持续产生临时 List/String 垃圾）；现在发送时缓存历史字符数 `contextBaseChars`，轮询只叠加当前回复的 `text.length`（O(1)），`onDone/onError/stopGenerating` 再全量校准一次。`refreshContextTokens()` 移到 `streaming = true` 之后调用，缓存才会生效。
@@ -83,8 +95,10 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 ## 5. 已知限制
 
-- Markdown / LaTeX 未渲染，公式按纯文本显示（下一步接入轻量 Markdown）。
-- 导入只保留当前分支；附件与图片不会重传；不提供「导出全部历史」。
+- Markdown/LaTeX 由自研 `Markdown.kt` 渲染，属手写子集：不支持表格、图片、嵌套列表；块级公式有一定布局开销，超长回答（> 8000 字符）退化为纯文本以保证滚动流畅。
+- 导入按会话 id 合并去重，只保留当前分支；附件与图片不会重传。
+- 全会话 ZIP 导出无进度条、不可取消（< 10 s，可接受）；单会话导出整份 JSON 解析，存在内存峰值。
+- CI 工作流已就绪但尚未在 GitHub 实跑；联网搜索真实 Key 全链路仍未跑通。
 - ~~release 使用 debug 签名~~ → 1.0.0 起使用正式 release keystore（证书指纹见第 8 节）；无密钥时仍回退 debug，仅限本地内测。
 - 联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路；UI 与请求结构已就绪（`web_search` 工具 + 引用渲染）。
 - 性能数据以真机（LQAVP23928C105TX，90Hz 档）为准；模拟器是软件渲染，其 gfxinfo jank 比例不作指标。
@@ -106,12 +120,12 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 ---
 *由 DeepSeek-V4.1Flash 构建；第三方客户端，与 DeepSeek 官方无隶属关系。*
 
-## 8. 1.0.0（MIT 版）发布基线（2026-11-23）
+## 8. 1.x（MIT 版）发布基线（2026-11-23）
 
 **身份与版本**
 
 - applicationId / namespace：**app.echo**；旧包名 app.xuxie 已废弃，禁止再使用（与旧版数据不互通，属已确认的破坏性变更）。
-- versionCode = 1，versionName = 1.0.0；两者只在 gradle.properties（echo.versionCode / echo.versionName）维护，app/build.gradle 只读取。
+- versionCode / versionName：1.0.0 = 1 / 1.0.0；当前 1.0.1 = 2 / 1.0.1。两者只在 gradle.properties（echo.versionCode / echo.versionName）维护，app/build.gradle 只读取。
 - minSdk 26 / targetSdk 35 / compileSdk 35。
 
 **签名**
@@ -122,9 +136,10 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - SHA-1：34:D7:42:34:BE:83:28:74:AF:DA:B4:9D:29:5A:C7:90:AE:8A:4B:70
 - **备份要求**：keystore 与口令至少备份三处异地；丢失将无法再发布同签名更新。
 
-**构建产物（本轮）**
+**构建产物**
 
-- app/build/outputs/apk/release/app-release.apk，1,389,853 B。
+- **1.0.1 / versionCode 2**（导出打磨：`unsafeNameChars` 去半角逗号、单会话导出 notice 改为「已导出 Markdown 文件」）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 08:38:17；SHA-256 `b524753d18276cc416c5882cef461125d80138a3e174dd9254659c67b0ec0836`；apksigner 校验 signer 证书 SHA-256 与上节一致；emulator-5554 安装后 dumpsys 显示 versionCode=2 / versionName=1.0.1（lastUpdateTime 2026-11-23 08:38:32）。
+- **1.0.0 / versionCode 1**（MIT 版基线）：`app/build/outputs/apk/release/app-release.apk`，1,389,853 B。
 - SHA-256：cf47437dac2f7f3cadf4c56d093f43fcff2097aebd255fb229f58c931cdcc0ca
 - 安装验证：emulator-5554（1080x2340）全新安装 app.echo 1.0.0 成功，冷启进入欢迎页（空数据），dumpsys 显示 versionCode=1 / versionName=1.0.0。
 

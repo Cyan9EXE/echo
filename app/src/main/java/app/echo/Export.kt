@@ -113,7 +113,7 @@ internal fun exportTime(ts: Long): String =
 
 private fun fileStamp(now: Long): String = fileStampFmt.format(Instant.ofEpochMilli(now))
 
-private val unsafeNameChars = Regex("[\\\\/:*?\"<>|%#()\\[\\]\\p{Cntrl}]")
+private val unsafeNameChars = Regex("[\\\\/:*?\"<>|%#()\\[\\],\\p{Cntrl}]")
 private val whitespaceRun = Regex("\\s+")
 
 /** 文件名/标题清洗：去掉路径与 Markdown/ZIP 不友好字符，空标题给默认值。 */

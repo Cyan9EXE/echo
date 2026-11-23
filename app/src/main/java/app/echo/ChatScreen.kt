@@ -73,7 +73,7 @@ internal fun ChatScreen(state: AppState, accent: Color) {
             state.notice = "正在导出 Markdown…"
             state.notice = runCatching { withContext(Dispatchers.IO) { exportSessionToUri(context, uri, snap) } }
                 .fold(
-                    onSuccess = { "已导出 Markdown（" + it.entries + " 条记录）" },
+                    onSuccess = { "已导出 Markdown 文件" },
                     onFailure = { "导出失败：" + (it.message ?: "无法写入所选位置") },
                 )
             exporting = false
