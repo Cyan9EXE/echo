@@ -15,7 +15,7 @@
 
 文件 | 职责 | 关键点
 MainActivity.kt（28） | 入口 | 只做 setContent
-EchoApp.kt（346） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
+EchoApp.kt（353） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
 ChatScreen.kt（463） | 会话页 | 上下文条、导出入口、复活横幅、摘要卡、贴底跟随滚动
 MessageViews.kt（369） | 消息渲染 | 思考折叠、流式光标、分块渲染、计费行、朗读入口、来源
 Composer.kt（352） | 输入区 | 发送/暂停、深度思考/联网、模型标签、语音输入
@@ -24,7 +24,8 @@ Drawer.kt（667） | 会话抽屉 | 标题/联想/内容搜索、对话保留面
 SettingsScreen.kt（603） | 设置与关于 | Key 显示保护、模型、最大输出、系统提示词、语音、外观、导入
 HelpDialogs.kt（517） | 答疑与引导 | 12 条 FAQ、4 级导入向导、通用计费确认
 UsageSheet.kt（224） | 用量与费用 | 官方余额、TTS/ASR 账本、生成花费
-State.kt（2138） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
+State.kt（2196） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
+SessionPersistence.kt（47） | 落盘策略 | 索引必写/节流、脏标记代数、孤儿会话对账、坏索引合并（纯 JVM 可单测）
 Models.kt（211） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
 Api.kt（268） | 网络与流式 | 请求体、SSE 读取循环、错误映射
 Sse.kt（73） | 协议解析 | 纯函数 parse(event, json)，可 JVM 单测
@@ -37,12 +38,12 @@ Design.kt（438） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:
 Theme.kt（371） | 主题 | 外观、强调色、Oklab 色阶与过渡
 ThemeSheet.kt（451） | 主题面板 | 预设、自定义底色、HSL 调色
 Glyphs.kt（300） | 图标字形 | 纯 Compose 绘制，不依赖图片资源
-Markdown.kt（1615） | Markdown / LaTeX 渲染 | 自研子集解析 + Compose 渲染、代码块与公式布局（流式稳定段增量解析、未闭合尾行按纯文本）
+Markdown.kt（1628） | Markdown / LaTeX 渲染 | 自研子集解析 + Compose 渲染、代码块与公式布局（流式稳定段增量解析、未闭合尾行按纯文本）
 Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（24） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 27 个 Kotlin 文件、约 11,571 行（随提交变化）。
+合计 28 个 Kotlin 文件、约 11,696 行（随提交变化）。
 
 ## 3. 状态与持久化
 
@@ -119,11 +120,11 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
 ## 9. 渲染与性能策略
 
-- LazyColumn 的 key 优先用消息 id，未就绪时用 stub 索引；animateItem 全程启用，新插入可被中断。
+- LazyColumn 的 key 优先用消息 id，未就绪时用 stub 索引；animateItem 用于非流式消息；流式 live 项跳过，避免每个 token 触发插入动画。
 - 贴底跟随：followTail 由三处决定——用户拖动（interactionSource 的 DragInteraction.Start）暂停；滚动停止时用 shouldFollowTail（最后可见项是否已是尾项且末端 gap ≤2px）重算；发送成功时 sendTick 自增强制回底 sendScrollTarget(size-1)。流式中若最后可见项不再是尾项，先按 tailRescueIndex 把尾项滚入视口，之后 withFrameNanos 每帧计算内容末端与视口的 gap、>0 才 scrollBy；程序化滚动不产生 DragInteraction，不会被误判为用户上滑。
-- 流式正文：StreamSplit 只在代码围栏 / 块级公式之外的空行或围栏闭合处提交稳定段并增量解析；未闭合尾部按全文纯文本绘制（超过 2400 字符按 1200 字符分块、不切断代理对），全文段按字符串缓存跳过重复排版；回答完成后整体 Markdown 排版。思考流式只渲染尾部 1400 字，折叠时限制最大高度。
+- 流式正文：StreamSplit 只在代码围栏 / 块级公式之外的空行或围栏闭合处提交稳定段并增量解析；未闭合尾部按全文纯文本绘制（超过 2400 字符按 1200 字符分块、不切断代理对），稳定前缀按字符串缓存，未提交尾部只缓存已写满的 1200 字符块、每个 token 只重排最后一段增长尾部；回答完成后整体 Markdown 排版。思考流式只渲染尾部 1400 字，折叠时限制最大高度。
 - 抽屉：computeDrawerView 用 derivedStateOf 缓存分区、排序与搜索结果；内容搜索延迟 180ms 防抖后在 io 线程遍历，结果按标题命中/内容命中分组。
-- 主题：颜色是全局静态 token，切换时一次性写入 themeProgress / eyeProgress，不再逐帧插值全树（避免每个读色组件每帧重组）；过渡只在绘制阶段读取 alpha 做 180ms 淡入。
+- 主题：颜色是全局静态 token，切换时一次性写入 themeProgress / eyeProgress，不再逐帧插值全树（避免每个读色组件每帧重组）；过渡为旧底色垫底、新底色与内容一起在 graphicsLayer 内做 220ms 交叉淡入，系统栏图标在淡入中点翻转。
 - Baseline Profile：androidx.baselineprofile 1.3.4 + baselineprofile 模块采集，release 内置 app/src/release/generated/baselineProfiles，运行时由 profileinstaller 安装；机器码由设备端 dex2oat 生成。
 - 性能数据见 REVIEW.md（0.9.2：冷启动中位 400ms，对比 verify 489ms，约 -18%；jank 中位约 2.2%）。版本不同，只作参考。
 
@@ -136,7 +137,7 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
 ## 11. 测试与验证
 
-- JVM 单测 112 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段与 8K 单行扫描推进）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）。命令见 CONTRIBUTING.md。
+- JVM 单测 118 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段与 8K 单行扫描推进）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、脏标记代数、孤儿会话对账、坏索引合并，6 例）。命令见 CONTRIBUTING.md。
 - 本地协议联调：scripts/mock_sse_server.py 提供 normal / truncated / error_sse / 429 / 500 五种模式，默认 18080 端口；debug 构建加 -PapiOrigin 指向它。
 - 构建验证：gradle :app:compileDebugKotlin（日常）；release 构建、签名与 Baseline Profile 见 README.md。
 - CI：.github/workflows/ci.yml（GitHub Actions）依次跑 Kotlin 编译、JVM 单测与 scripts/mock_sse_server.py --selftest，环境为 JDK 17 / Gradle 8.9 / Android SDK 35。

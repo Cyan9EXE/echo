@@ -102,7 +102,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 - **为什么要抽纯函数**：`ApiClient.stream` 原先把 SSE 循环、请求体拼装和 Android `Handler` 绑死，JVM 单测无法覆盖。现在 `app/src/main/java/app/echo/Api.kt` 顶层有两个 `internal` 纯函数：`buildChatBody(model, thinking, webSearch, systemPrompt, messages, maxTokens): JSONObject`（max_tokens 收敛、stream/thinking、`deepseek_web_search` 工具、空白 system 省略、assistant 历史带 signature 时回放 thinking+text 两块）；`pumpSse(reader, isCancelled, onEvent): Boolean`（逐行解析 event/data、空行触发 `Sse.parse`、记录 message_stop、EOF/取消返回 false）。`ApiClient.stream` 只保留 UI/线程回调，行为不变。
 - **ProtocolTest.kt 15 例**：maxTokens 上下限收敛、model/stream/thinking 开关、webSearch 有无工具、空白 system 省略、signature 历史回放、完整轮次事件顺序与 usage `full` 标志、截断缺 message_stop、取消只消费首个事件、error 帧文案、ping/comment 不产事件、`httpErrorMessage` 401/402/429/503/504 映射、400 detail 直出与内容审核文案、未知码 fallback。
-- **测试**：本节时点（1.0.3）为 91 例 0 失败：Billing 16 / Export 9 / Format 4 / Markdown 28 / Protocol 15 / Sse 19（此前 76 例）；1.0.5 REVIEW-LOOP 第 2、3 轮后为 99 例（新增 `TtsAudioTest` 8 例）。第 6、7 轮后为 112 例（新增 FollowTail 与 Markdown 流式扫描用例）。
+- **测试**：本节时点（1.0.3）为 91 例 0 失败：Billing 16 / Export 9 / Format 4 / Markdown 28 / Protocol 15 / Sse 19（此前 76 例）；1.0.5 REVIEW-LOOP 第 2、3 轮后为 99 例（新增 `TtsAudioTest` 8 例）。第 6、7 轮后为 112 例（新增 FollowTail 与 Markdown 流式扫描用例）；第 8 轮后为 118 例（新增 `SessionPersistenceTest` 6 例）。
 - **本地 CI 演练**：`bash scripts/run_tests.sh --smoke` 全绿 = `compileDebugKotlin` + `testDebugUnitTest`（99 绿）+ `mock_sse_server.py --selftest` 15/15 + 冒烟（normal 有 message_stop、truncated 无、429 状态码正确）；脚本自己探测 python3/python。`.github/workflows/ci.yml` 同步存在，因暂不发布 GitHub 未实跑。
 - **真机回归**：1.0.3 安装后真 Key 发 ping →「Pong! 🏓 / What can I help you with today?」，底部「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错。
 
@@ -158,11 +158,11 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 ### REVIEW-LOOP 第 6 轮（外部审查 → 修复，2026-11-23 → 24）
 
-- **外部审查**：以 HEAD f9b99d8 为对象做只读复审，报告 `review/rounds/echo-1.0.5-round6-review.md`（193 行 / 23,725 B）。结论：P0 = 0、P1 = 1、P2 = 8、P3 = 6，**不通过**；唯一 P1 是第 5 轮贴底救援修复引入的回归（首帧被 `snapshotFlow` 的初始 false 覆盖）。
+- **外部审查**：以 HEAD f9b99d8 为对象做只读复审，报告 `review/rounds/echo-1.0.5-round6-review.md`（193 行 / 23,727 B）。结论：P0 = 0、P1 = 1、P2 = 8、P3 = 6，**不通过**；唯一 P1 是第 5 轮贴底救援修复引入的回归（首帧被 `snapshotFlow` 的初始 false 覆盖）。
 - **P1-1 跟底回归**：`ChatScreen.kt` 的 `followTail` 不再被 `isScrollInProgress` 的初始 emission 覆盖；新增 `shouldFollowTail(lastIndex, totalItems, gap)` 只在滚动停止时重算（空列表 / 末项可见 / gap ≤ 2f 才跟随）；程序化 `scrollToItem` / `scrollBy` 不产生 `DragInteraction`，用户上滑时通过 `listState.interactionSource.interactions` 的 `DragInteraction.Start` 暂停跟随，拖回底部松手后自动恢复。
 - **P2-1 流式 Markdown 重写**：`StreamSplit` 改为「稳定段只提交到空行或代码围栏闭合处」，尾部全文纯文本渲染、不截断不隐藏（>2400 字符按 1200 字符分块且不切断代理对），全文段按字符串缓存跳过重复排版；删除 `STREAM_TAIL_MAX=800` 窗口与前缀递归重解析。补 `StreamSplit` / `chunkText` 单测 5 例。
 - **P2-3 / P2-4 解析与列表发布**：`readSessionRecord` 在 IO 线程完成 JSON→消息列表与摘要解析（`ParsedRecord`），主线程 `applyParsedRecord` 只做 `markReady` 与摘要 / 字数发布；`MessageList.loaded` 改为 `mutableStateOf<List<Msg>>`，结构修改整体发布新列表。
-- **P2-5 / P2-6 动画**：主题切换先 `themeFade.snapTo(0)` 再换色、整屏 `graphicsLayer` 淡入（含抽屉与弹层）；`motionOn` 改为每 500ms 轮询 `ValueAnimator.areAnimatorsEnabled()` 并写入 `Motion.animationsEnabled`，设置页提示与 `SunMoonMark` 统一走 `Motion.dur`。
+- **P2-5 / P2-6 动画**：主题切换先 `themeFade.snapTo(0)` 再换色、整屏 `graphicsLayer` 淡入（含抽屉与弹层，第 8 轮改为旧底色垫底的真实交叉淡入，见下节）；`motionOn` 改为每 500ms 轮询 `ValueAnimator.areAnimatorsEnabled()` 并写入 `Motion.animationsEnabled`，设置页提示与 `SunMoonMark` 统一走 `Motion.dur`。
 - **P2-8 落盘可靠性**：`writeAtomic` 用唯一临时名 + `FileOutputStream` 的 flush / `fd.sync` + rename；`save` 主线程只做快照，索引行在 IO 线程构建；写失败把 id 放回 `dirtyIds`、索引失败置 `forceIndexNext`；`charCount` 改增量维护；`onError` 与 `onDone` 都调用 `finishUsage`（暂停轮次不再漏记费用）。
 - **P3 清理**：删除 `Motion.crossfade` / `C.voidLuminanceFor` / `C.shapeProgress`；删除 `IndexRow.systemSent` 与 `Session.systemSent` 及相关读写；`ThinkingBlock` 空思考不再重复「正在思考 + TypingDots」；`retryLast` 未 ready 时提示「会话内容还在载入」；`FollowTailTest` / `MarkdownTest` 补 6 例。
 - **验证**：`compileDebugKotlin` 通过；JVM 单测 **109 例 0 失败**（本轮 +6）；release 从工作树重建为 1,460,365 B、SHA-256 `3960aa50331867adce406c7df4d2a70b353004f0261ff008203e7ed92840d3c2`（mtime 2026-11-24 00:24）。真机仍断开，设备复验未执行。
@@ -175,6 +175,18 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **B 组修复**（提交 69d21f9，10 files +425/−27）：P2-5 索引写按 `indexDirty` 节流（结构变更立即、流式文本增长最多每 30s 一次）；P2-8 失效改为按 `updatedAt` 派生（`isExpiredNow` / `refreshExpired`），`MainActivity.onResume` 重新计算；P2-9 提交 Gradle 8.9 wrapper（`gradlew` / `gradlew.bat` / `gradle-wrapper.jar` / `gradle-wrapper.properties`，含 `distributionSha256Sum=d725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab`），README / CI / baselineprofile / run_tests 改用 `./gradlew`。
 - **验证**：`compileDebugKotlin` 通过；JVM 单测 **112 例 0 失败**（Billing 16 / Export 9 / FollowTail 6 / Format 4 / Markdown 35 / Protocol 15 / Sse 19 / TtsAudio 8）；release 从工作树重建为 1,460,365 B、SHA-256 `996804ad2f70d3193da9bbfaee71e91a8de88ad9bbb78583c861cd4924e27b91`（mtime 2026-11-24 01:02）。真机仍断开，设备复验未执行。
 - **残留**：P2-7 仍缺 Compose UI 测试 / Macrobenchmark 与真机性能证据；P3 清理项（文档行号、时间线统一、节假日峰谷等）留下版；第 8 轮复审待发起。
+
+### REVIEW-LOOP 第 8 轮（外部审查 → 修复，2026-11-24）
+
+- **外部审查**：以 HEAD f4e519c 为对象做只读复审，报告 `review/rounds/echo-1.0.5-round8-review.md`（235 行 / 20,198 B）。结论：P0 = 0、P1 = 2、P2 = 7、P3 = 8，**不通过**；必修 P1-1（删除会话不重写索引）、P1-2（新建会话 / 索引 30s 窗口竞态）、P2-1（gradlew 缺可执行位），发布前建议同批 P2-2 / P2-5。
+- **P1-1 / P1-2 索引必写与代数对账**（提交 `73bfbb3`）：`save()` 的索引判定改为 `indexWriteDue(urgent, indexDirty, ...)`，forceIndex 无条件写索引；`delete()` 置 `indexDirty` 并自增代数；新建会话发送时立即 `save(forceIndex = true)`；新增 `indexEpoch`，IO 成功回调只在代际未变时清脏，否则置 `forceIndexNext` 重试；启动 `loadIndexAsync()` 增加索引与消息文件对账，缺失会话从文件补行并重写索引（最多 50 条）。
+- **P2-2 坏索引去重与元数据**：损坏索引先保留可解析行，再与从消息文件重建的行按 id 合并（`PersistencePolicy.mergeRebuilt`，可解析行优先，保留 pinned / revived / imported / cost），不再出现重复会话。
+- **P2-5 导入索引失败可恢复**：`finalizeImport` 的索引 JSON 改在 IO 线程构建并写入，失败时保留 `indexDirty` / `forceIndexNext` 并在 notice 里提示「重启后自动从会话文件恢复」，启动对账兜底。
+- **P2-3 / P2-4 流式尾部与主题过渡**：`StreamingTail` 只缓存已写满的 1200 字符块（`remember(complete)`），每个 token 只重排最后一段增长中的尾部；主题切换改为旧底色垫在图层外、新底色与内容一起在 `graphicsLayer` 内做 220ms 交叉淡入，系统栏图标在淡入中点翻转。
+- **P2-1 wrapper 可执行位**：`gradlew` 以 100755 提交，CI 增加 `chmod +x gradlew` 防御；干净 clone 可直接 `./gradlew`。
+- **P2-6 / P2-7 测试与文档**：新增纯 JVM `SessionPersistenceTest` 6 例（索引判定、脏标记代数、孤儿会话、坏索引合并），单测 112 → 118；文档按实际行为修正（`animateItem` 流式项跳过、尾部只缓存整块、索引结构变更立即写）。
+- **验证**：`compileDebugKotlin` 通过；JVM 单测 **118 例 0 失败**（Billing 16 / Export 9 / FollowTail 6 / Format 4 / Markdown 35 / Protocol 15 / Sse 19 / TtsAudio 8 / SessionPersistence 6）；release 从工作树重建为 1,460,365 B、SHA-256 `0b6ee8939181296dc6fd94cabf6ac472071865408dbc7fbfa24cf40b09280160`（mtime 2026-11-24 01:31）。真机仍断开，设备复验未执行。
+- **残留**：P2-6 仍缺 Compose UI 测试 / Macrobenchmark（无设备）；P2-7 / P3 的文档行号、节假日峰谷、Drawer 删除确认等留下版；第 9 轮复审待发起。
 
 ### 性能（真机实测，0.9.2 / versionCode 13）
 
@@ -189,7 +201,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - Markdown/LaTeX 由自研 `Markdown.kt` 渲染，属手写子集：不支持表格、图片、嵌套列表；块级公式有一定布局开销。流式时最后未闭合段以纯文本尾行渲染，回答完成后整体 Markdown 排版。
 - 导入按会话 id 合并去重，只保留当前分支；附件与图片不会重传。
 - 全会话 ZIP 导出无进度条、不可取消（< 10 s，可接受）；单会话导出整份 JSON 解析，存在内存峰值。
-- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 112 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
+- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 118 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
 - ~~release 使用 debug 签名~~ → 1.0.0 起使用正式 release keystore（证书指纹见第 8 节）；无密钥时仍回退 debug，仅限本地内测。
 - ~~联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路~~ → 1.0.2 已打通：服务端执行搜索，客户端收到 `citations_delta` 并在回答末尾渲染「来源」（§4 真 Key 冒烟）。
 - 性能数据以真机（LQAVP23928C105TX，90Hz 档）为准；模拟器是软件渲染，其 gfxinfo jank 比例不作指标。
