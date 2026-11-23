@@ -54,4 +54,8 @@ internal object PersistencePolicy {
         for (r in rebuiltRows) out.putIfAbsent(id(r), r)
         return out.values.toList()
     }
+
+    /** 启动清理（删残留消息文件、撤墓碑）的前提：过滤墓碑后的索引已写盘，或本来就不需要重写（R10-P1-1 修法③）。 */
+    fun startupCleanupAllowed(indexWritten: Boolean, needsIndexWrite: Boolean): Boolean =
+        indexWritten || !needsIndexWrite
 }

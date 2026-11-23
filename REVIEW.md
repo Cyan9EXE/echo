@@ -186,7 +186,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **P2-1 wrapper 可执行位**：`gradlew` 以 100755 提交，CI 增加 `chmod +x gradlew` 防御；干净 clone 可直接 `./gradlew`。
 - **P2-6 / P2-7 测试与文档**：新增纯 JVM `SessionPersistenceTest` 6 例（索引判定、脏标记代数、孤儿会话、坏索引合并），单测 112 → 118；文档按实际行为修正（`animateItem` 流式项跳过、尾部只缓存整块、索引结构变更立即写）。
 - **验证**：`compileDebugKotlin` 通过；JVM 单测 **118 例 0 失败**（Billing 16 / Export 9 / FollowTail 6 / Format 4 / Markdown 35 / Protocol 15 / Sse 19 / TtsAudio 8 / SessionPersistence 6）；release 从工作树重建为 1,460,365 B、SHA-256 `0b6ee8939181296dc6fd94cabf6ac472071865408dbc7fbfa24cf40b09280160`（mtime 2026-11-24 01:31）。真机仍断开，设备复验未执行。
-- **残留**：P2-6 仍缺 Compose UI 测试 / Macrobenchmark（无设备）；P2-7 / P3 的文档行号、节假日峰谷、Drawer 删除确认等留下版；第 9 轮复审待发起。
+- **残留**：P2-6 仍缺 Compose UI 测试 / Macrobenchmark（无设备）；P2-7 / P3 的文档行号、节假日峰谷等留下版（Drawer 删除确认已在第 9 轮 P2-2 落地）；第 9 轮复审待发起。
 
 ### REVIEW-LOOP 第 9 轮（外部审查 → 修复，2026-11-24）
 

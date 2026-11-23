@@ -91,4 +91,11 @@ class SessionPersistenceTest {
         assertEquals(1, merged.size)
         assertTrue(merged.single().pinned)
     }
+    @Test
+    fun cleanupBlockedUntilFilteredIndexWritten() {
+        assertEquals(false, PersistencePolicy.startupCleanupAllowed(false, true))
+        assertEquals(true, PersistencePolicy.startupCleanupAllowed(true, true))
+        assertEquals(true, PersistencePolicy.startupCleanupAllowed(false, false))
+    }
+
 }

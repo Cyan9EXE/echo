@@ -93,6 +93,12 @@ internal fun Welcome(
                     )
                 }
                 Spacer(Modifier.height(if (compact) 14.dp else 34.dp))
+                if (state.indexLoading && state.sessions.isEmpty()) {
+                    Box(Modifier.rise(8.dp) { phase(.2f, .8f) }) {
+                        Text("正在恢复会话索引…", color = C.Muted, fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.height(if (compact) 10.dp else 18.dp))
+                }
                 if (compact) {
                     links()
                     Spacer(Modifier.height(14.dp))
