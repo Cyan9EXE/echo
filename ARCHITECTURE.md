@@ -37,12 +37,12 @@ Design.kt（427） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:
 Theme.kt（384） | 主题 | 外观、强调色、Oklab 色阶与过渡
 ThemeSheet.kt（449） | 主题面板 | 预设、自定义底色、HSL 调色
 Glyphs.kt（300） | 图标字形 | 纯 Compose 绘制，不依赖图片资源
-Markdown.kt（1492） | Markdown / LaTeX 渲染 | 自研子集解析 + Compose 渲染、代码块与公式布局（>8000 字符退化纯文本）
+Markdown.kt（1492） | Markdown / LaTeX 渲染 | 自研子集解析 + Compose 渲染、代码块与公式布局（流式稳定段增量解析、未闭合尾行按纯文本）
 Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（30） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 27 个 Kotlin 文件、约 11,121 行（随提交变化）。
+合计 27 个 Kotlin 文件、约 11,164 行（随提交变化）。
 
 ## 3. 状态与持久化
 
@@ -68,13 +68,13 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 ## 5. 一次发送的完整链路
 
 1. Composer 调 state.send(text)（State.kt:450）。
-2. 守卫：正在流式 → 提示先暂停；会话失效未复活 → 提示复活；无 API Key → 打开设置。
+2. 守卫：正在流式 → 提示先停止；会话失效未复活 → 提示复活；无 API Key → 打开设置。
 3. 无会话则新建，标题取正文前 24 字；插入 user 消息和空 assistant 占位；联网开启时 effectiveModel 强制 deepseek-flash，否则用所选模型。
 4. system 提示词每轮都发：官方 Messages API 无状态、不携带上次上下文，因此 send 时对 systemPrompt 做 trim，非空则随每轮请求发送（空白则不发送，省无效 token）；session.systemSent 仅作为历史 / 导入兼容字段保留。
 5. buildHistory（State.kt:700）组装 ApiMsg：摘要模式下把「更早对话的摘要」拼进尾部第一条 user 消息；深度思考开启且历史里存有 thinking 签名时，assistant 消息以 thinking + text 两个 content 块回传（官方扩展思考要求签名可校验）。
 6. ApiClient.stream（Api.kt:160）在独立 Thread 中 POST /anthropic/v1/messages；max_tokens 取 state.maxTokens（默认 32,768，钳制在 4,096–65,536）；flushMs 性能模式 45、正常 60。
 7. SSE 循环逐行读 event: / data:，空行触发 Sse.parse（Sse.kt:24）；文本与思考先写入缓冲，累计 8192 字节或距上次 flush 超过 flushMs 才回投主线程，降低重组频率；signature、citation、usage、stop_reason 直接回投。
-8. State 的 publish 节流：正常 120ms、性能 70ms 更新 reply.text / reply.thinking，bumpRevisionThrottled 触发列表刷新。
+8. State 的正文发布：用 Choreographer 帧回调合并，同一帧只 publish 一次（正常 16ms、性能 33ms 上限），bumpRevisionThrottled 触发列表刷新；终态先 removeFrameCallback 再强制 publish。
 9. usage 合并：message_start 的预填值按 maxOf 合并；message_delta 的全量值覆盖。输入侧 token = input_tokens + cache_read_input_tokens + cache_creation_input_tokens。
 10. 结束：onDone 收敛 thinkingMs、写入 stopReason、finishUsage 累加 session.costCny、systemSent=true、markDirty + save。stop_reason 为 max_tokens 时提示已达到输出上限；用户暂停时提示已保留当前内容。
 11. 失败：onError 保留已生成内容并在尾部加「[中断] 原因」，reply.failed=true，UI 提供重试；重试先做与发送相同的守卫（流式中 / 会话失效 / 无 Key 直接提示），通过后才删掉最后一条 assistant 并重发；发送失败会回滚消息并提示（State.kt:664）。
@@ -120,8 +120,8 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 ## 9. 渲染与性能策略
 
 - LazyColumn 的 key 优先用消息 id，未就绪时用 stub 索引；流式中不启用 animateItem，结束后才允许。
-- 贴底跟随：只有最后可见项接近末尾时才自动滚动；用 snapshotFlow 观察最后一条消息的 text.length + thinking.length，conflate 后按 60ms（性能）/ 90ms（正常）节流，避免每 token 滚动。
-- 长文本：超过 700 字按 600 字一块在换行边界切开（超 12000 字不切，避免切片过多）；思考流式只渲染尾部 1400 字，折叠时限制最大高度。
+- 贴底跟随：withFrameNanos 每帧计算内容末端与视口的 gap，>0 才 scrollBy；snapshotFlow 观察 isScrollInProgress 维护 followTail（拖动暂停、回到底部恢复）。
+- 流式正文：只解析最后一个换行之前的稳定段（按段缓存结果），未闭合尾行用 PlainStreamText 纯文本绘制、静态光标；回答完成后整体 Markdown 排版。思考流式只渲染尾部 1400 字，折叠时限制最大高度。
 - 抽屉：computeDrawerView 用 derivedStateOf 缓存分区、排序与搜索结果；内容搜索延迟 180ms 防抖后在 io 线程遍历，结果按标题命中/内容命中分组。
 - 主题：C 的 Void/Panel/Ivory 等是 get() 计算属性，用 Oklab 在多段色阶上插值；切换时只推 themeProgress / eyeProgress / accentAnim，不重建整棵树。
 - Baseline Profile：androidx.baselineprofile 1.3.4 + baselineprofile 模块采集，release 内置 app/src/release/generated/baselineProfiles，运行时由 profileinstaller 安装；机器码由设备端 dex2oat 生成。
@@ -144,7 +144,7 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 ## 12. 已知架构债（按影响排序）
 
 1. State.kt 单文件约 1.7k 行，承担状态、持久化、导入、摘要、计费估算与搜索，继续增长会有维护成本。
-2. Markdown / LaTeX 渲染层（Markdown.kt）已接线到 MessageViews.AnswerText，但为手写子集：不支持表格 / 图片 / 嵌套列表，块级公式有布局开销，正文超过 8000 字符会退化纯文本。
+2. Markdown / LaTeX 渲染层（Markdown.kt）已接线到 MessageViews.AnswerText，但为手写子集：不支持表格 / 图片 / 嵌套列表，块级公式有布局开销；流式时未闭合尾行按纯文本渲染，完成后整体解析。
 3. 导入只保存附件文件名，不重传二进制；重复导入依赖会话 ID 去重（FAQ 与向导文案已改为「合并、已存在跳过」口径）。
 4. launcher 图标仍是占位资产。
 5. 无仪器测试 / 截图回归；协议回归靠 JVM 单测 + mock server，外加一轮真实 Key 人工冒烟（见 REVIEW.md §4）。

@@ -2,7 +2,7 @@
 
 目标：验证官方 TTS（`/v1/tools/tts`，24 kHz PCM16）经客户端半带 FIR 升采样到 48 kHz、AudioTrack 流式播放的完整链路，并覆盖暂停/继续/停止、音频焦点、旋转、后台等边界。
 
-范围：1.0.5 / versionCode 6（REVIEW-LOOP 第 1–3 轮修复；第 3 轮代码提交 `2616cb1`），emulator-5554（1080×2340）。设备实测证据来自第 2 轮包 sha256 `e7e59e10e3751987216810ca30aa2799f48049fa05b850bf5bb864640a383e6b`；第 3 轮重建包 sha256 `edca1a7b48ac6337dee9dfa5441586a15c5cfb9a525dda917bf1be52c1fef15f`（未改 TTS 播放路径，未重跑设备）。真机待补（真机型号见 REVIEW.md §5）。
+范围：1.0.5 / versionCode 6（REVIEW-LOOP 第 1–4 轮修复；第 4 轮修复提交 `5aa0eda`），emulator-5554（1080×2340）。设备实测证据来自第 2 轮包 sha256 `e7e59e10e3751987216810ca30aa2799f48049fa05b850bf5bb864640a383e6b`；第 3 轮重建包 sha256 `edca1a7b48ac6337dee9dfa5441586a15c5cfb9a525dda917bf1be52c1fef15f`；第 4 轮重建包 sha256 `881c38aa1b60b27666ca4a736136e60f819e102d5c12d318dc1814f574f4e8ac`（流式渲染与列表跟随改动，未改 TTS 播放路径）。第 4 轮时真机已断开（adb devices 为空），TTS 场景未复验。真机待补（真机型号见 REVIEW.md §5）。
 
 ## 前置
 
