@@ -83,12 +83,12 @@ class AppState(private val context: Context) {
     var systemPrompt by mutableStateOf(prefs.getString("systemPrompt", "").orEmpty())
         private set
     // 0..C.skins.lastIndex = preset skin, C.skins.size = custom accent colour.
+    // V3：槽位顺序不变（0 金→沙金 … 4 白→灰紫），旧整数直接沿用；缺省/非法值回退雾蓝（1）。
     var skinIndex by mutableStateOf(
-        prefs.getInt("skinIndex", if (prefs.getBoolean("blueAccent", true)) 1 else 0)
-            .coerceIn(0, C.skins.size),
+        prefs.getInt("skinIndex", 1).let { if (it in 0..C.skins.size) it else 1 },
     )
         private set
-    var customAccent by mutableStateOf(prefs.getInt("customAccent", 0xFF7FA8FF.toInt()))
+    var customAccent by mutableStateOf(prefs.getInt("customAccent", 0xFF759ECC.toInt()))
         private set
     /** 日间第五种外观：底色由用户自选，存成 ARGB（只换色度，明度仍跟随纸白）。 */
     var customThemeArgb by mutableStateOf(prefs.getInt("customTheme", 0xFFF3E9D8.toInt()))

@@ -25,21 +25,18 @@ object C {
     var themeProgress by mutableFloatStateOf(0f)
 
     val skins = listOf(
-        Skin("金", Color(0xFFF2A65A), Color(0xFF9A520F)),
-        Skin("蓝", Color(0xFF7FA8FF), Color(0xFF2F55B8)),
-        Skin("青", Color(0xFF6FD3B4), Color(0xFF1F6B57)),
-        Skin("陶", Color(0xFFF49A7C), Color(0xFF99503A)),
-        Skin("白", Color(0xFFF2EFE9), Color(0xFF151515)),
+        Skin("沙金", Color(0xFFB4974C), Color(0xFF7F6726)),
+        Skin("雾蓝", Color(0xFF759ECC), Color(0xFF4C6C91)),
+        Skin("黛青", Color(0xFF60A6A5), Color(0xFF3C7272)),
+        Skin("陶土", Color(0xFFD1877B), Color(0xFF965A50)),
+        Skin("灰紫", Color(0xFFB38DBE), Color(0xFF7E5F87)),
     )
 
     var isDay by mutableStateOf(false)
         private set
 
-    /** 白皮肤只在夜间完整生效，日间自动转黑，名字也随之改成「黑」。 */
-    fun skinLabel(index: Int): String {
-        val skin = skins.getOrNull(index) ?: return "自定义"
-        return if (skin.label == "白" && isDay) "黑" else skin.label
-    }
+    /** 5 色均同时具备日/夜值，不再有「白」日间转黑的特例。 */
+    fun skinLabel(index: Int): String = skins.getOrNull(index)?.label ?: "自定义"
 
     var eyeMode by mutableIntStateOf(0)
         private set
@@ -119,6 +116,10 @@ object C {
 
     fun tone(accent: Color): Color = mixOklab(accent, Color.Black, 0.30f)
 
+    /** 日间强调色作小字时的加深版：在 16% 同色底上仍 ≥4.5:1；夜间不变。 */
+    fun accentText(accent: Color): Color =
+        if (!isDay) accent else mixOklab(accent, Color.Black, 0.09f)
+
     fun eyeLit(): Color = if (eyeMode == 2) Color(0xFFCBE7BC) else Color(0xFFF5E3A8)
 
     fun eyeDim(): Color = mixOklab(eyeLit(), Color.Black, 0.38f)
@@ -177,7 +178,7 @@ object C {
 
     val Scrim get() = scrimRamp.at(themeProgress)
 
-    val ACCENT_ID = arrayOf("gold", "blue", "teal", "clay", "white")
+    val ACCENT_ID = arrayOf("sand", "mist", "slate", "clay", "mauve")
 
     /** 20 个预设：4 外观 × 5 强调色。外观决定底色，强调色只决定 accent。 */
     val presets: List<Preset> = listOf(Look.PAPER, Look.INK, Look.WARM, Look.GREEN).flatMap { look ->
@@ -343,15 +344,19 @@ private class LookRamp(
 
 /** 夜间强调色（全局共享）。 */
 private val ACCENT_NIGHT = longArrayOf(
-    0xFFF2A65A, 0xFF7FA8FF, 0xFF6FD3B4, 0xFFF49A7C, 0xFFF2EFE9,
+    0xFFB4974C, // 沙金
+    0xFF759ECC, // 雾蓝
+    0xFF60A6A5, // 黛青
+    0xFFD1877B, // 陶土
+    0xFFB38DBE, // 灰紫
 )
 
-/** 日间强调色：按外观分四套（暖黄、淡绿降饱和或偏色相避撞），行序同 Look。 */
+/** 日间强调色：按外观分四套，行序同 Look。V3 日间值已对三种浅底验证，四行同值。 */
 private val ACCENT_DAY = arrayOf(
-    longArrayOf(0xFF964E0C, 0xFF2F55B8, 0xFF1F6B57, 0xFF934A35, 0xFF121110),
-    longArrayOf(0xFF964E0C, 0xFF2F55B8, 0xFF1F6B57, 0xFF934A35, 0xFF121110),
-    longArrayOf(0xFF8A4E05, 0xFF2C4F9E, 0xFF14655C, 0xFFA2432A, 0xFF17130E),
-    longArrayOf(0xFF86560A, 0xFF2B4C93, 0xFF0F5F58, 0xFF9C4A32, 0xFF12160F),
+    longArrayOf(0xFF7F6726, 0xFF4C6C91, 0xFF3C7272, 0xFF965A50, 0xFF7E5F87), // PAPER
+    longArrayOf(0xFF7F6726, 0xFF4C6C91, 0xFF3C7272, 0xFF965A50, 0xFF7E5F87), // INK（只作过渡）
+    longArrayOf(0xFF7F6726, 0xFF4C6C91, 0xFF3C7272, 0xFF965A50, 0xFF7E5F87), // WARM
+    longArrayOf(0xFF7F6726, 0xFF4C6C91, 0xFF3C7272, 0xFF965A50, 0xFF7E5F87), // GREEN
 )
 
 private fun accentNight(i: Int): Color = Color(ACCENT_NIGHT[i])

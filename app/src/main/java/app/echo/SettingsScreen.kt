@@ -144,7 +144,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                         ) {
                             Text(
                                 if (keyShown) "隐藏" else "显示",
-                                color = accent, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+                                color = C.accentText(accent), fontSize = 11.sp, fontWeight = FontWeight.Medium,
                             )
                         }
                     } else {
@@ -242,7 +242,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                                     .background(if (active) accent.copy(alpha = .16f) else Color.Transparent, RoundedCornerShape(9.dp))
                                     .border(1.dp, if (active) accent else C.Hair, RoundedCornerShape(9.dp))
                                     .padding(horizontal = 10.dp, vertical = 8.dp),
-                            ) { Text(m, color = if (active) accent else C.Muted, fontSize = 10.sp) }
+                            ) { Text(m, color = if (active) C.accentText(accent) else C.Muted, fontSize = 10.sp) }
                         }
                     }
                 }
@@ -267,7 +267,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                                     .background(if (prompt == value) accent.copy(alpha = .16f) else Color.Transparent, RoundedCornerShape(8.dp))
                                     .border(1.dp, if (prompt == value) accent else C.Hair, RoundedCornerShape(8.dp))
                                     .padding(horizontal = 9.dp, vertical = 7.dp),
-                            ) { Text(label, color = if (prompt == value) accent else C.Muted, fontSize = 10.sp) }
+                            ) { Text(label, color = if (prompt == value) C.accentText(accent) else C.Muted, fontSize = 10.sp) }
                         }
                     }
                 }
@@ -324,7 +324,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                                     .background(if (on) accent.copy(alpha = .16f) else Color.Transparent, RoundedCornerShape(9.dp))
                                     .border(1.dp, if (on) accent else C.Hair, RoundedCornerShape(9.dp))
                                     .padding(horizontal = 10.dp, vertical = 7.dp),
-                            ) { Text(label, color = if (on) accent else C.Muted, fontSize = 10.sp) }
+                            ) { Text(label, color = if (on) C.accentText(accent) else C.Muted, fontSize = 10.sp) }
                         }
                     }
                 }
@@ -345,7 +345,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                                     .background(if (on) accent.copy(alpha = .16f) else Color.Transparent, RoundedCornerShape(9.dp))
                                     .border(1.dp, if (on) accent else C.Hair, RoundedCornerShape(9.dp))
                                     .padding(horizontal = 10.dp, vertical = 8.dp),
-                            ) { Text(label, color = if (on) accent else C.Muted, fontSize = 10.sp) }
+                            ) { Text(label, color = if (on) C.accentText(accent) else C.Muted, fontSize = 10.sp) }
                         }
                     }
                 }
@@ -359,8 +359,8 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     Text("外观", color = C.Ivory, fontSize = 14.sp)
                     Spacer(Modifier.weight(1f))
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text("暗", color = if (!C.isDay) accent else C.Muted, fontSize = 14.sp, modifier = Modifier.clickable { if (C.isDay) state.toggleDay() })
-                        Text("亮", color = if (C.isDay) accent else C.Muted, fontSize = 14.sp, modifier = Modifier.clickable { if (!C.isDay) state.toggleDay() })
+                        Text("暗", color = if (!C.isDay) C.accentText(accent) else C.Muted, fontSize = 14.sp, modifier = Modifier.clickable { if (C.isDay) state.toggleDay() })
+                        Text("亮", color = if (C.isDay) C.accentText(accent) else C.Muted, fontSize = 14.sp, modifier = Modifier.clickable { if (!C.isDay) state.toggleDay() })
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -392,7 +392,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                             val on = kotlin.math.abs(state.fontScale - scale) < .01f
                             Text(
                                 label,
-                                color = if (on) accent else C.Muted,
+                                color = if (on) C.accentText(accent) else C.Muted,
                                 fontSize = 14.sp,
                                 modifier = Modifier.clickable { state.updateFontScale(scale) },
                             )
@@ -406,13 +406,13 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         Text(
                             "海星",
-                            color = if (state.ttsVoice == "stella") accent else C.Muted,
+                            color = if (state.ttsVoice == "stella") C.accentText(accent) else C.Muted,
                             fontSize = 13.sp,
                             modifier = Modifier.clickable { state.updateTtsVoice("stella") },
                         )
                         Text(
                             "暗潮",
-                            color = if (state.ttsVoice == "tide") accent else C.Muted,
+                            color = if (state.ttsVoice == "tide") C.accentText(accent) else C.Muted,
                             fontSize = 13.sp,
                             modifier = Modifier.clickable { state.updateTtsVoice("tide") },
                         )
@@ -475,7 +475,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                                 scale = .94f,
                                 description = "选择 ZIP",
                             ) {
-                                Text("选择 ZIP", color = accent, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
+                                Text("选择 ZIP", color = C.accentText(accent), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
                             }
                         }
                         Spacer(Modifier.height(4.dp))
@@ -574,11 +574,11 @@ internal fun AboutDialog(accent: Color, onDismiss: () -> Unit) {
                             Text("源码仓库", color = C.Ivory, fontSize = 13.sp)
                             Text("github.com/Cyan9EXE/echo", color = C.Muted, fontSize = 10.sp)
                         }
-                        Text("打开", color = accent, fontSize = 11.sp)
+                        Text("打开", color = C.accentText(accent), fontSize = 11.sp)
                     }
                 }
                 Spacer(Modifier.height(16.dp))
-                Text("由 DeepSeek-V4.1Flash 构建", color = accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text("由 DeepSeek-V4.1Flash 构建", color = C.accentText(accent), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "第三方客户端，与 DeepSeek 官方无隶属关系；名称与商标归其所有者。",

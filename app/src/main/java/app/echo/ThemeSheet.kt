@@ -119,7 +119,7 @@ internal fun ThemeSheet(state: AppState, accent: Color) {
                 SheetSection("预设")
                 PresetGrid(state, accent)
                 Text(
-                    "预设只是「外观 × 强调色」的组合，可以交叉使用，例如暖黄底配蓝色强调。",
+                    "预设只是「外观 × 强调色」的组合，可以交叉使用，例如暖黄底配雾蓝强调。",
                     color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
                 )
 
@@ -130,6 +130,7 @@ internal fun ThemeSheet(state: AppState, accent: Color) {
                             modifier = Modifier.weight(1f),
                             label = C.skinLabel(index),
                             mark = C.mark(index, Color.Transparent, C.accentAt(index.toFloat())),
+                            accent = C.accentAt(index.toFloat()),
                             selected = !state.customMode && state.skinIndex == index,
                             onClick = { state.applyAccent(index) },
                         )
@@ -137,7 +138,7 @@ internal fun ThemeSheet(state: AppState, accent: Color) {
                 }
                 CustomAccentRow(state, accent)
                 Text(
-                    "「白」只在夜间模式完整生效，日间会自动转为黑；色块上方是底色、下方是主题色。",
+                    "色块上方是底色、下方是主题色；灰紫承接原来的中性位，夜间更亮、日间更沉。",
                     color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
                 )
 
@@ -272,6 +273,7 @@ private fun ThemeSwatch(
     modifier: Modifier = Modifier,
     label: String,
     mark: ThemeMark,
+    accent: Color,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -281,7 +283,7 @@ private fun ThemeSwatch(
             .heightIn(min = 78.dp)
             .clip(shape)
             .background(if (selected) C.PanelHigh else C.Panel)
-            .border(1.dp, if (selected) C.Ivory.copy(alpha = .55f) else C.Hair, shape)
+            .border(1.5.dp, if (selected) accent else C.Hair, shape)
             .clickable(onClick = onClick)
             .padding(vertical = 9.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -319,7 +321,7 @@ private fun CustomAccentRow(state: AppState, accent: Color) {
         }
         Text(
             if (state.customMode) "编辑" else "选择",
-            color = if (state.customMode) accent else C.Muted, fontSize = 11.sp,
+            color = if (state.customMode) C.accentText(accent) else C.Muted, fontSize = 11.sp,
         )
     }
 }

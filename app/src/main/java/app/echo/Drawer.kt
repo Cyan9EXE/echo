@@ -146,7 +146,7 @@ internal fun SearchModeTab(label: String, selected: Boolean, accent: Color, onCl
     ) {
         Box(Modifier.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
             Text(
-                label, color = if (selected) accent else C.Muted, fontSize = 12.sp,
+                label, color = if (selected) C.accentText(accent) else C.Muted, fontSize = 12.sp,
                 style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
             )
         }
@@ -172,7 +172,7 @@ internal fun DrawerSectionHeader(
             Text(count.toString(), color = C.Muted, fontSize = 10.sp)
             Spacer(Modifier.weight(1f))
             if (onToggle != null && expanded != null) {
-                Text(if (expanded) "收起" else "展开", color = accent, fontSize = 11.sp)
+                Text(if (expanded) "收起" else "展开", color = C.accentText(accent), fontSize = 11.sp)
             }
         }
         if (note.isNotBlank()) {
@@ -220,7 +220,7 @@ internal fun DrawerSessionRow(
                 Column(Modifier.fillMaxWidth()) {
                     Text(
                         session.title.ifBlank { "新对话" },
-                        color = if (session.id == state.currentId) accent else C.Ivory,
+                        color = if (session.id == state.currentId) C.accentText(accent) else C.Ivory,
                         fontSize = 15.sp, maxLines = 1,
                     )
                     Text(
@@ -244,7 +244,7 @@ internal fun DrawerSessionRow(
         }
         if (expiredMode) {
             if (session.expired) {
-                Text("复活", color = accent, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp))
+                Text("复活", color = C.accentText(accent), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp))
             } else {
                 Text(fmtRemaining(session.updatedAt, now), color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
             }
@@ -631,7 +631,7 @@ internal fun DrawerPanel(
                             Text(dormant.size.toString() + " 个已不活跃", color = C.Muted, fontSize = 11.sp)
                             Spacer(Modifier.width(8.dp))
                         }
-                        Text("复活", color = accent, fontSize = 12.sp)
+                        Text("复活", color = C.accentText(accent), fontSize = 12.sp)
                     }
                 }
                 Spacer(Modifier.height(2.dp))
