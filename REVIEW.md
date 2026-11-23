@@ -95,6 +95,14 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **停止生成**：长文提问流式至约 1466 tokens 时点「暂停回答」（原发送按钮变为暂停）→ 保留已生成内容、恢复「发送」，无「连接提前结束」报错（用户主动取消不算缺 `message_stop`），底部记录 ≈¥0.0133。
 - **协议回归证据（真实 Key）**：`message_start` / `message_delta` 的 usage、`message_stop`、`citations_delta` 均被 Sse.kt 正确解析且无异常；异常 / 截断 / 429 / 500 分支由 SseTest 19 例与 mock 服务 `--selftest` 15/15 覆盖。
 
+### 协议回归 + 本地 CI 演练（路线图 6 / 10，2026-11-23）
+
+- **为什么要抽纯函数**：`ApiClient.stream` 原先把 SSE 循环、请求体拼装和 Android `Handler` 绑死，JVM 单测无法覆盖。现在 `app/src/main/java/app/echo/Api.kt` 顶层有两个 `internal` 纯函数：`buildChatBody(model, thinking, webSearch, systemPrompt, messages, maxTokens): JSONObject`（max_tokens 收敛、stream/thinking、`deepseek_web_search` 工具、空白 system 省略、assistant 历史带 signature 时回放 thinking+text 两块）；`pumpSse(reader, isCancelled, onEvent): Boolean`（逐行解析 event/data、空行触发 `Sse.parse`、记录 message_stop、EOF/取消返回 false）。`ApiClient.stream` 只保留 UI/线程回调，行为不变。
+- **ProtocolTest.kt 15 例**：maxTokens 上下限收敛、model/stream/thinking 开关、webSearch 有无工具、空白 system 省略、signature 历史回放、完整轮次事件顺序与 usage `full` 标志、截断缺 message_stop、取消只消费首个事件、error 帧文案、ping/comment 不产事件、`httpErrorMessage` 401/402/429/503/504 映射、400 detail 直出与内容审核文案、未知码 fallback。
+- **测试总计 91 例 0 失败**：Billing 16 / Export 9 / Format 4 / Markdown 28 / Protocol 15 / Sse 19（此前 76 例）。
+- **本地 CI 演练**：`bash scripts/run_tests.sh --smoke` 全绿 = `compileDebugKotlin` + `testDebugUnitTest`（91 绿）+ `mock_sse_server.py --selftest` 15/15 + 冒烟（normal 有 message_stop、truncated 无、429 状态码正确）；脚本自己探测 python3/python。`.github/workflows/ci.yml` 同步存在，因暂不发布 GitHub 未实跑。
+- **真机回归**：1.0.3 安装后真 Key 发 ping →「Pong! 🏓 / What can I help you with today?」，底部「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错。
+
 ### 性能（真机实测，0.9.2 / versionCode 13）
 
 - **上下文条轮询**：流式生成时每 500ms 刷新 token 估算。原实现每次都遍历整段会话（`historyMessages()` 过滤 + `sumOf`，长会话持续产生临时 List/String 垃圾）；现在发送时缓存历史字符数 `contextBaseChars`，轮询只叠加当前回复的 `text.length`（O(1)），`onDone/onError/stopGenerating` 再全量校准一次。`refreshContextTokens()` 移到 `streaming = true` 之后调用，缓存才会生效。
@@ -108,9 +116,9 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - Markdown/LaTeX 由自研 `Markdown.kt` 渲染，属手写子集：不支持表格、图片、嵌套列表；块级公式有一定布局开销，超长回答（> 8000 字符）退化为纯文本以保证滚动流畅。
 - 导入按会话 id 合并去重，只保留当前分支；附件与图片不会重传。
 - 全会话 ZIP 导出无进度条、不可取消（< 10 s，可接受）；单会话导出整份 JSON 解析，存在内存峰值。
-- CI 工作流已就绪但尚未在 GitHub 实跑；联网搜索真实 Key 全链路仍未跑通。
+- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 91 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
 - ~~release 使用 debug 签名~~ → 1.0.0 起使用正式 release keystore（证书指纹见第 8 节）；无密钥时仍回退 debug，仅限本地内测。
-- 联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路；UI 与请求结构已就绪（`web_search` 工具 + 引用渲染）。
+- ~~联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路~~ → 1.0.2 已打通：服务端执行搜索，客户端收到 `citations_delta` 并在回答末尾渲染「来源」（§4 真 Key 冒烟）。
 - 性能数据以真机（LQAVP23928C105TX，90Hz 档）为准；模拟器是软件渲染，其 gfxinfo jank 比例不作指标。
 
 ## 6. 怎么跑
@@ -135,7 +143,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 **身份与版本**
 
 - applicationId / namespace：**app.echo**；旧包名 app.xuxie 已废弃，禁止再使用（与旧版数据不互通，属已确认的破坏性变更）。
-- versionCode / versionName：1.0.0 = 1 / 1.0.0、1.0.1 = 2 / 1.0.1；当前 **1.0.2 = 3 / 1.0.2**。两者只在 gradle.properties（echo.versionCode / echo.versionName）维护，app/build.gradle 只读取。
+- versionCode / versionName：1.0.0 = 1 / 1.0.0、1.0.1 = 2 / 1.0.1、1.0.2 = 3 / 1.0.2；当前 **1.0.3 = 4 / 1.0.3**。两者只在 gradle.properties（echo.versionCode / echo.versionName）维护，app/build.gradle 只读取。
 - minSdk 26 / targetSdk 35 / compileSdk 35。
 
 **签名**
@@ -148,6 +156,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 **构建产物**
 
+- **1.0.3 / versionCode 4**（协议回归 + 本地 CI 演练：把请求体拼装与 SSE 循环从 `ApiClient.stream` 抽成纯函数 `buildChatBody` / `pumpSse`，新增 `ProtocolTest.kt` 15 例；`scripts/run_tests.sh --smoke` 本地跑通编译 + 91 单测 + mock 自检 + normal/truncated/429 冒烟）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:40；SHA-256 `d2c6f62a89f839d6341ca84f196167a24d5fa1ef40e09d762e91d9940e67a42c`；emulator-5554 安装后 dumpsys 显示 versionCode=4 / versionName=1.0.3；重构后真机 ping 冒烟正常（回复「Pong! 🏓」，「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错）。
 - **1.0.2 / versionCode 3**（导入文案纠错：答疑中心与导入 FAQ 由「会覆盖本机全部会话」改为「按会话 ID 合并、已存在跳过、附件不导入、全程不上传」，与导入实现口径一致）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:29；SHA-256 `fbb19241fdfd9c8adf211d63e382d45193f3ea6b848264adc2721f9dd8e2f78b`；emulator-5554 安装后 dumpsys 显示 versionCode=3 / versionName=1.0.2（lastUpdateTime 2026-11-23 09:30:06）；导入气泡、导入 FAQ 与答疑中心两条新文案均真机核对。
 - **1.0.1 / versionCode 2**（导出打磨：`unsafeNameChars` 去半角逗号、单会话导出 notice 改为「已导出 Markdown 文件」）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 08:38:17；SHA-256 `b524753d18276cc416c5882cef461125d80138a3e174dd9254659c67b0ec0836`；apksigner 校验 signer 证书 SHA-256 与上节一致；emulator-5554 安装后 dumpsys 显示 versionCode=2 / versionName=1.0.1（lastUpdateTime 2026-11-23 08:38:32）。
 - **1.0.0 / versionCode 1**（MIT 版基线）：`app/build/outputs/apk/release/app-release.apk`，1,389,853 B。
@@ -158,6 +167,6 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 - 新增 LICENSE（MIT，2026 Echo contributors）与 NOTICE（Compose/Kotlin/AndroidX/Apache-2.0 归属；Echo 名称/图标/视觉资产保留所有权利）。
 - README 重写：品牌边界、AI 辅助 AS IS、免费非商业但 MIT 允许任何用途、维护边界（不做云同步/账号/后端/广告/内购/非公开接口）、AOT 表述改为“profile 引导、机器码设备本地生成”。
-- 已知限制与进度同步：Markdown/LaTeX 渲染、单会话 Markdown 与全会话 ZIP 导出、README 八张实拍截图、导出文件名安全化、协议正确性（Sse.kt / maxTokens / message_stop 校验）、导入健壮性与兼容层文档（docs/protocol-compat.md）均已在 1.0.1 完成；1.0.2 修正导入文案口径并补完真 Key 冒烟（联网搜索 citations 全链路已打通，见 §4）。仍在路线图中的是单元测试与 CI 在 GitHub 实跑、协议回归用例补齐。
+- 已知限制与进度同步：Markdown/LaTeX 渲染、单会话 Markdown 与全会话 ZIP 导出、README 八张实拍截图、导出文件名安全化、协议正确性（Sse.kt / maxTokens / message_stop 校验）、导入健壮性与兼容层文档（docs/protocol-compat.md）均已在 1.0.1 完成；1.0.2 修正导入文案口径并补完真 Key 冒烟（联网搜索 citations 全链路已打通，见 §4）；1.0.3 完成协议回归（抽 `buildChatBody`/`pumpSse` + `ProtocolTest` 15 例，总计 91 单测）与本地 CI 演练。仍在路线图中的是：CI 在 GitHub 实跑（暂不发布）、旧 UI 三项收尾。
 
 **说明**：本文第 3–5 节的性能与交互验证数据来自 0.9.2（app.xuxie）；1.0.0 仅变更身份与签名，代码行为未变，因此这些数据继续有效。

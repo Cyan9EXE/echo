@@ -54,12 +54,14 @@ log "步骤 1/3: :app:compileDebugKotlin"
 gradle_retry "$GRADLE_CMD" :app:compileDebugKotlin --console=plain --no-daemon || fail "Kotlin 编译失败"
 log "步骤 2/3: :app:testDebugUnitTest"
 gradle_retry "$GRADLE_CMD" :app:testDebugUnitTest --console=plain --no-daemon || fail "JVM 单测失败（报告: app/build/reports/tests）"
-log "步骤 3/3: mock SSE selftest"
-python3 "$HERE/mock_sse_server.py" --selftest || fail "mock SSE selftest 失败"
+PY="$(command -v python3 || command -v python || true)"
+[ -n "$PY" ] || fail "未找到 python3 / python"
+log "步骤 3/3: mock SSE selftest ($PY)"
+"$PY" "$HERE/mock_sse_server.py" --selftest || fail "mock SSE selftest 失败"
 
 if [ "$SMOKE" = "1" ]; then
   PORT=18080
-  python3 "$HERE/mock_sse_server.py" --port "$PORT" >/dev/null 2>&1 &
+  "$PY" "$HERE/mock_sse_server.py" --port "$PORT" >/dev/null 2>&1 &
   SERVER_PID=$!
   trap 'kill $SERVER_PID 2>/dev/null' EXIT
   i=0

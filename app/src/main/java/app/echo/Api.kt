@@ -62,6 +62,92 @@ internal fun httpErrorMessage(code: Int, body: String, fallback: String): String
     }
 }
 
+/**
+ * Builds the /anthropic/v1/messages request body.
+ * Pure (no Android / network) so request shaping is covered by JVM tests.
+ */
+internal fun buildChatBody(
+    model: String,
+    thinking: Boolean,
+    webSearch: Boolean,
+    systemPrompt: String?,
+    messages: List<ApiMsg>,
+    maxTokens: Int,
+): JSONObject = JSONObject().apply {
+    put("model", model)
+    put("max_tokens", maxTokens.coerceIn(ApiClient.MIN_MAX_TOKENS, ApiClient.MAX_MAX_TOKENS))
+    put("stream", true)
+    put("thinking", JSONObject().put("type", if (thinking) "enabled" else "disabled"))
+    if (webSearch) {
+        put(
+            "tools",
+            JSONArray().put(
+                JSONObject()
+                    .put("type", "deepseek_web_search")
+                    .put("name", "deepseek_web_search"),
+            ),
+        )
+    }
+    systemPrompt?.takeIf { it.isNotBlank() }?.let { put("system", it) }
+    val arr = JSONArray()
+    messages.forEach { m ->
+        arr.put(JSONObject().apply {
+            put("role", m.role)
+            // Reasoning continuity: an assistant turn with a stored signature is replayed as a
+            // thinking block + text block so the model can verify the chain of thought it produced
+            // (required by extended thinking).
+            if (m.role == "assistant" && m.signature.isNotBlank() && m.thinking.isNotBlank()) {
+                put("content", JSONArray().apply {
+                    put(
+                        JSONObject()
+                            .put("type", "thinking")
+                            .put("thinking", m.thinking)
+                            .put("signature", m.signature),
+                    )
+                    put(JSONObject().put("type", "text").put("text", m.content))
+                })
+            } else {
+                put("content", m.content)
+            }
+        })
+    }
+    put("messages", arr)
+}
+
+/**
+ * Consumes an SSE stream: reads "event:"/"data:" blocks, parses them with [Sse.parse] and hands
+ * every event to [onEvent]. Returns true only when the server sent message_stop (complete turn).
+ * Free of Android APIs so the stream contract has JVM protocol regression tests.
+ */
+internal fun pumpSse(
+    reader: BufferedReader,
+    isCancelled: () -> Boolean,
+    onEvent: (StreamEvent) -> Unit,
+): Boolean {
+    var event = ""
+    val data = StringBuilder(256)
+    var gotMessageStop = false
+    while (true) {
+        if (isCancelled()) break
+        val line = reader.readLine() ?: break
+        if (line.isEmpty()) {
+            if (data.isNotEmpty()) {
+                for (ev in Sse.parse(event, data.toString())) {
+                    if (ev is StreamEvent.Stop) gotMessageStop = true
+                    onEvent(ev)
+                }
+                event = ""
+                data.setLength(0)
+            }
+        } else if (line.startsWith("event:")) {
+            event = line.removePrefix("event:").trim()
+        } else if (line.startsWith("data:")) {
+            data.append(line.removePrefix("data:").trim())
+        }
+    }
+    return gotMessageStop
+}
+
 object ApiClient {
     private val main = Handler(Looper.getMainLooper())
 
@@ -122,46 +208,7 @@ object ApiClient {
                 conn.setRequestProperty("content-type", "application/json")
                 conn.setRequestProperty("accept", "text/event-stream")
                 conn.setRequestProperty("accept-encoding", "identity")
-                val body = JSONObject().apply {
-                    put("model", model)
-                    put("max_tokens", maxTokens.coerceIn(MIN_MAX_TOKENS, MAX_MAX_TOKENS))
-                    put("stream", true)
-                    put("thinking", JSONObject().put("type", if (thinking) "enabled" else "disabled"))
-                    if (webSearch) {
-                        put(
-                            "tools",
-                            JSONArray().put(
-                                JSONObject()
-                                    .put("type", "deepseek_web_search")
-                                    .put("name", "deepseek_web_search"),
-                            ),
-                        )
-                    }
-                    systemPrompt?.takeIf { it.isNotBlank() }?.let { put("system", it) }
-                    val arr = JSONArray()
-                    messages.forEach { m ->
-                        arr.put(JSONObject().apply {
-                            put("role", m.role)
-                            // Reasoning continuity: an assistant turn with a stored signature is
-                            // replayed as a thinking block + text block so the model can verify
-                            // the chain of thought it produced (required by extended thinking).
-                            if (m.role == "assistant" && m.signature.isNotBlank() && m.thinking.isNotBlank()) {
-                                put("content", JSONArray().apply {
-                                    put(
-                                        JSONObject()
-                                            .put("type", "thinking")
-                                            .put("thinking", m.thinking)
-                                            .put("signature", m.signature),
-                                    )
-                                    put(JSONObject().put("type", "text").put("text", m.content))
-                                })
-                            } else {
-                                put("content", m.content)
-                            }
-                        })
-                    }
-                    put("messages", arr)
-                }
+                val body = buildChatBody(model, thinking, webSearch, systemPrompt, messages, maxTokens)
                 conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
                 val code = conn.responseCode
                 if (code !in 200..299) {
@@ -171,39 +218,21 @@ object ApiClient {
                     throw ApiException(code, text)
                 }
                 val reader = conn.inputStream.reader(Charsets.UTF_8).buffered(32 * 1024)
-                var event = ""
-                val data = StringBuilder(256)
-                var gotMessageStop = false
-                while (true) {
-                    if (handle.cancelled) break
-                    val line = reader.readLine() ?: break
-                    if (line.isEmpty()) {
-                        if (data.isNotEmpty()) {
-                            val raw = data.toString()
-                            for (ev in Sse.parse(event, raw)) {
-                                when (ev) {
-                                    is StreamEvent.Text -> textBuf.append(ev.text)
-                                    is StreamEvent.Thinking -> thinkBuf.append(ev.text)
-                                    is StreamEvent.Signature -> main.post { onSignature?.invoke(ev.signature) }
-                                    is StreamEvent.CitationFound -> main.post { onCitation?.invoke(ev.citation) }
-                                    is StreamEvent.Usage -> main.post { onUsage(ev.usage.copy(full = ev.full)) }
-                                    is StreamEvent.StopReason -> main.post { onStopReason?.invoke(ev.reason) }
-                                    StreamEvent.Stop -> gotMessageStop = true
-                                    is StreamEvent.Failure -> textBuf.append("\n\n[错误] ").append(ev.message)
-                                }
-                            }
-                            event = ""
-                            data.setLength(0)
-                            if (textBuf.length + thinkBuf.length >= FLUSH_BYTES ||
-                                SystemClock.uptimeMillis() - lastFlushAt >= flushMs.coerceIn(16, 200)
-                            ) {
-                                flush()
-                            }
-                        }
-                    } else if (line.startsWith("event:")) {
-                        event = line.removePrefix("event:").trim()
-                    } else if (line.startsWith("data:")) {
-                        data.append(line.removePrefix("data:").trim())
+                val gotMessageStop = pumpSse(reader, { handle.cancelled }) { ev ->
+                    when (ev) {
+                        is StreamEvent.Text -> textBuf.append(ev.text)
+                        is StreamEvent.Thinking -> thinkBuf.append(ev.text)
+                        is StreamEvent.Signature -> main.post { onSignature?.invoke(ev.signature) }
+                        is StreamEvent.CitationFound -> main.post { onCitation?.invoke(ev.citation) }
+                        is StreamEvent.Usage -> main.post { onUsage(ev.usage.copy(full = ev.full)) }
+                        is StreamEvent.StopReason -> main.post { onStopReason?.invoke(ev.reason) }
+                        StreamEvent.Stop -> Unit
+                        is StreamEvent.Failure -> textBuf.append("\n\n[错误] ").append(ev.message)
+                    }
+                    if (textBuf.length + thinkBuf.length >= FLUSH_BYTES ||
+                        SystemClock.uptimeMillis() - lastFlushAt >= flushMs.coerceIn(16, 200)
+                    ) {
+                        flush()
                     }
                 }
                 flush()

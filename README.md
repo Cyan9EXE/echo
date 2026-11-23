@@ -2,7 +2,7 @@
 
 一个原生 Android 客户端（Kotlin + Jetpack Compose）：把 DeepSeek 官方导出的历史会话 ZIP 导入本机，逐会话复活已超过 7 天未活跃的对话；对话直接走用户自己的 API Key（BYOK），不经过任何中转服务器。
 
-> **版本 1.0.2（MIT 版） · versionCode 3** · 由 **DeepSeek-V4.1Flash** 构建
+> **版本 1.0.3（MIT 版） · versionCode 4** · 由 **DeepSeek-V4.1Flash** 构建
 > 第三方客户端，与 DeepSeek 官方无隶属关系；DeepSeek 名称与商标归其所有者。
 
 ## 免责声明与品牌边界
@@ -55,8 +55,8 @@
 
 - namespace = applicationId = app.echo；旧包名 app.xuxie 已废弃，不得再使用。
 - minSdk 26 / targetSdk 35。
-- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 3 / 1.0.2）。
-- 测试：JVM 单元测试覆盖 SSE 解析、计费与切分、格式化、导出渲染与 Markdown 解析，命令与约定见 CONTRIBUTING.md；CI 见 .github/workflows/ci.yml（Kotlin 编译 + 单测 + mock SSE 自检）。
+- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 4 / 1.0.3）。
+- 测试：JVM 单元测试 **91 例 0 失败**，覆盖请求体拼装与 SSE 解析/协议回归（`buildChatBody` / `pumpSse`）、计费与切分、格式化、导出渲染与 Markdown 解析；本地 `bash scripts/run_tests.sh --smoke` 会跑编译 + 单测 + mock SSE 自检 + 冒烟，命令与约定见 CONTRIBUTING.md；GitHub Actions 见 .github/workflows/ci.yml。
 - 性能：对话页只在贴底时跟随流式输出；会话列表的分区 / 搜索 / 排序结果按状态缓存；索引写入与消息解析全部下沉 IO 线程。
 - AOT（profile 引导）：release 内置官方 androidx.baselineprofile 插件生成的 **Baseline Profile**，并依赖 androidx.profileinstaller:1.4.1。Baseline Profile 只是“热点方法清单”，随同一个 APK 分发到所有设备；真正的机器码由每台设备安装/空闲时由 ART 的 dex2oat 以 speed-profile 本地生成，**不随安装包分发机器码**。
 
