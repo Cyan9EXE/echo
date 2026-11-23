@@ -478,6 +478,7 @@ class AppState(private val context: Context) {
         }
         if (session.messages.isEmpty()) session.title = body.take(24)
         session.messages.add(Msg(role = "user", text = body))
+        session.charCount += body.length.toLong()
         val effectiveModel = if (webSearch) "deepseek-flash" else model
         val reply = Msg(role = "assistant", text = "", model = effectiveModel)
         session.messages.add(reply)
@@ -503,8 +504,12 @@ class AppState(private val context: Context) {
         val choreographer = android.view.Choreographer.getInstance()
         var publishScheduled = false
         fun publishNow() {
+            val prev = reply.text.length
             reply.text = textBuf.toString()
             reply.thinking = thinkingBuf.toString()
+            // 索引/上下文条读 charCount，流式正文增长时增量维护，避免落盘时主线程扫全文（P2-8）。
+            val delta = reply.text.length - prev
+            if (delta != 0) session.charCount += delta.toLong()
         }
         val publishFrame = object : android.view.Choreographer.FrameCallback {
             override fun doFrame(frameTimeNanos: Long) {
@@ -599,6 +604,8 @@ class AppState(private val context: Context) {
                     }
                     choreographer.removeFrameCallback(publishFrame)
                     publishNow()
+                    // 失败也要为已产生的 token 计费，否则账本长期偏低（P2-8）。
+                    finishUsage(session, reply)
                     streaming = false
                     activeStream = null
                     flushLive = null
@@ -611,28 +618,26 @@ class AppState(private val context: Context) {
                     save()
                 }
             },
-            onDone = { cancelled ->
+            onDone = { _ ->
+                // 用户点停止时 stopGenerating 先自增 streamSeq 并给终态，这里只处理正常结束（P3-3）。
                 if (mySeq == streamSeq) {
                     if (thinkingBuf.isNotEmpty() && reply.thinkingMs == 0L) {
                         reply.thinkingMs = SystemClock.uptimeMillis() - thinkStarted
                     }
                     choreographer.removeFrameCallback(publishFrame)
                     publishNow()
+                    val before = reply.text.length
+                    if (reply.text.isBlank()) reply.text = "（没有收到内容）"
+                    if (reply.text.length != before) session.charCount += (reply.text.length - before).toLong()
+                    if (reply.stopReason == "max_tokens") {
+                        notice = "已达到最大输出长度（可在设置里调高上限）。"
+                    }
                     streaming = false
                     activeStream = null
                     flushLive = null
                     streamSessionId = null
                     refreshContextTokens()
-                    if (includeSystem) session.systemSent = true
-                    if (cancelled) {
-                        notice = "已停止生成；已保留当前内容。"
-                    } else {
-                        if (reply.text.isBlank()) reply.text = "（没有收到内容）"
-                        if (reply.stopReason == "max_tokens") {
-                            notice = "已达到最大输出长度（可在设置里调高上限）。"
-                        }
-                        finishUsage(session, reply)
-                    }
+                    finishUsage(session, reply)
                     markDirty(sessionId)
                     revision++
                     save()
@@ -675,7 +680,6 @@ class AppState(private val context: Context) {
             session.summaryCovered = plan.covered
             session.summaryBlocks.clear()
             session.summaryBlocks.addAll(plan.blocks)
-            session.systemSent = false
             notice = "已用摘要模式恢复：早期对话由本机压成要点，后部原文保留；不调用 API、不额外消耗 token。"
         } else {
             session.contextMode = "full"
@@ -706,7 +710,10 @@ class AppState(private val context: Context) {
             return
         }
         ensureReadyBlocking(session)
-        if (!session.messages.ready) return
+        if (!session.messages.ready) {
+            notice = "会话内容还在载入，请稍候再重试。"
+            return
+        }
         val lastUserIndex = session.messages.indexOfLast { it.role == "user" }
         if (lastUserIndex < 0) return
         val lastUser = session.messages[lastUserIndex]
@@ -715,10 +722,13 @@ class AppState(private val context: Context) {
         ) session.messages[lastUserIndex + 1] else null
         if (lastAssistant != null) session.messages.removeAt(lastUserIndex + 1)
         session.messages.removeAt(lastUserIndex)
+        val removedChars = lastUser.text.length.toLong() + (lastAssistant?.text?.length ?: 0).toLong()
+        session.charCount = (session.charCount - removedChars).coerceAtLeast(0L)
         // Deleting before sending is unsafe: guards may reject, so restore on failure (P1-2).
         if (!send(lastUser.text)) {
             session.messages.add(lastUser)
             if (lastAssistant != null) session.messages.add(lastAssistant)
+            session.charCount += removedChars
             notice = "发送失败，已恢复上一轮消息。"
         }
     }
@@ -987,15 +997,19 @@ class AppState(private val context: Context) {
         save()
     }
 
+    private var forceIndexNext = false
+
     fun save(forceIndex: Boolean = false) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             main.post { save(forceIndex) }
             return
         }
-        if (dirtyIds.isEmpty() && !forceIndex) return
+        val mustIndex = forceIndex || forceIndexNext
+        forceIndexNext = false
+        if (dirtyIds.isEmpty() && !mustIndex) return
         val ids = ArrayList(dirtyIds)
         dirtyIds.clear()
-        val snapshots = ArrayList<SessionSnapshot>(ids.size)
+        val pairs = ArrayList<Pair<String, SessionSnapshot>>(ids.size)
         val notReady = ArrayList<String>(ids.size)
         for (id in ids) {
             val s = sessions.firstOrNull { it.id == id } ?: continue
@@ -1003,18 +1017,27 @@ class AppState(private val context: Context) {
                 notReady.add(id)
                 continue
             }
-            snapshots.add(snapshotSession(s))
+            pairs.add(id to snapshotSession(s))
         }
         // Keep dirty flags for not-yet-loaded sessions so they persist later (P2-3).
         dirtyIds.addAll(notReady)
-        // Index rows touch Compose state and message lists, so they are still built on
-        // the main thread; only JSON encoding and disk writes happen on the store thread.
-        val rows = sessions.map(::sessionIndexRow)
+        // 主线程只做快照；索引行只读普通字段（roleSeq/charCount），放到 IO 线程构建（P2-8）。
+        val allSessions = ArrayList(sessions)
         io.execute {
-            for (snap in snapshots) {
-                runCatching { writeAtomic(msgFile(snap.id), serializeSnapshot(snap)) }
+            val failed = ArrayList<String>()
+            for ((id, snap) in pairs) {
+                if (runCatching { writeAtomic(msgFile(id), serializeSnapshot(snap)) }.isFailure) failed.add(id)
             }
-            runCatching { writeAtomic(indexFile, serializeIndex(rows)) }
+            val indexOk = runCatching {
+                writeAtomic(indexFile, serializeIndex(allSessions.map(::sessionIndexRow)))
+            }.isSuccess
+            // 写失败不能静默丢改动：把 id 放回 dirty，下次保存重试（P2-8）。
+            if (failed.isNotEmpty() || !indexOk) {
+                main.post {
+                    dirtyIds.addAll(failed)
+                    if (!indexOk) forceIndexNext = true
+                }
+            }
         }
     }
 
@@ -1089,8 +1112,8 @@ class AppState(private val context: Context) {
 
     private fun sessionIndexRow(s: Session): IndexRow = IndexRow(
         s.id, s.title, s.updatedAt, s.expired, s.revived, s.contextMode,
-        s.summaryCovered, s.imported, s.pinned, s.costCny, s.messages.roleSeq, s.systemSent,
-        if (s.messages.ready) s.messages.sumOf { it.text.length.toLong() } else s.charCount,
+        s.summaryCovered, s.imported, s.pinned, s.costCny, s.messages.roleSeq,
+        s.charCount,
     )
 
     private fun indexRowJson(r: IndexRow): JSONObject = JSONObject().apply {
@@ -1105,7 +1128,6 @@ class AppState(private val context: Context) {
         put("pinned", r.pinned)
         put("costCny", r.costCny)
         put("roles", r.roles)
-        put("systemSent", r.systemSent)
         put("chars", r.chars)
     }
 
@@ -1211,8 +1233,13 @@ class AppState(private val context: Context) {
 
     private fun writeAtomic(file: File, text: String) {
         file.parentFile?.mkdirs()
-        val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(text)
+        // 唯一 tmp 名避免并发写互相覆盖；fsync 后再 rename，崩溃不会留下半截文件（P2-8）。
+        val tmp = File(file.parentFile, file.name + "." + System.nanoTime() + ".tmp")
+        java.io.FileOutputStream(tmp).use { out ->
+            out.write(text.toByteArray(Charsets.UTF_8))
+            out.flush()
+            out.fd.sync()
+        }
         // Same-directory rename replaces atomically on Linux; deleting the target
         // first opened a window where a crash left no file at all.
         if (tmp.renameTo(file)) return
@@ -1254,7 +1281,6 @@ class AppState(private val context: Context) {
             imported = o.optBoolean("imported"),
             pinned = o.optBoolean("pinned"),
             costCny = o.optDouble("costCny", 0.0),
-            systemSent = o.optBoolean("systemSent", false),
         ).also {
             it.messages.markUnloaded(o.optString("roles"))
             it.charCount = o.optLong("chars", 0L)
@@ -1382,17 +1408,17 @@ class AppState(private val context: Context) {
         return out
     }
 
-    /** 只做 JSON 读取；[applyParsedRecord] 必须在主线程执行。 */
-    private fun readSessionRecord(f: File): JSONObject? =
-        runCatching { JSONObject(f.readText()) }.getOrNull()
+    /** IO 线程完成的解析产物：JSON→Msg 列表与摘要都在后台构造，主线程只发布（P2-3）。 */
+    private data class ParsedRecord(
+        val messages: List<Msg>,
+        val summary: String,
+        val covered: Int,
+        val blocks: List<SummaryBlock>,
+    )
 
-    private fun parseSessionRecord(f: File, s: Session) {
-        val o = readSessionRecord(f) ?: run { s.messages.markEmpty(); return }
-        applyParsedRecord(o, s)
-    }
-
-    /** 主线程应用解析结果：MessageList 的 loaded 只在主线程写，避免 UI 读普通 ArrayList 竞争（P2-2）。 */
-    private fun applyParsedRecord(o: JSONObject, s: Session) {
+    /** 只做 IO 解析，不碰 Compose 状态；结果交给主线程 [applyParsedRecord]。 */
+    private fun readSessionRecord(f: File): ParsedRecord? = runCatching {
+        val o = JSONObject(f.readText())
         val arr = o.optJSONArray("messages") ?: JSONArray()
         val list = ArrayList<Msg>(arr.length())
         for (i in 0 until arr.length()) {
@@ -1416,14 +1442,29 @@ class AppState(private val context: Context) {
                 it.stopReason = m.optString("stopReason")
             })
         }
+        ParsedRecord(
+            messages = list,
+            summary = o.optString("summary"),
+            covered = if (o.has("covered")) o.optInt("covered") else -1,
+            blocks = readSummaryBlocks(o),
+        )
+    }.getOrNull()
+
+    private fun parseSessionRecord(f: File, s: Session) {
+        val record = readSessionRecord(f) ?: run { s.messages.markEmpty(); return }
+        applyParsedRecord(record, s)
+    }
+
+    /** 主线程只做一次发布：MessageList 的 loaded 只在主线程写，避免 UI 读普通 ArrayList 竞争（P2-4）。 */
+    private fun applyParsedRecord(record: ParsedRecord, s: Session) {
         // 先提交消息列表；晚到的异步解析在这里被丢弃时，摘要/覆盖范围/字数
         // 也必须一起丢弃，不能覆盖已加载会话的较新状态（R4-P2-5）。
-        if (!s.messages.markReady(list)) return
-        s.summary = o.optString("summary")
-        s.summaryCovered = o.optInt("covered", s.summaryCovered)
+        if (!s.messages.markReady(record.messages)) return
+        s.summary = record.summary
+        s.summaryCovered = if (record.covered >= 0) record.covered else s.summaryCovered
         s.summaryBlocks.clear()
-        s.summaryBlocks.addAll(readSummaryBlocks(o))
-        s.charCount = list.sumOf { it.text.length.toLong() }
+        s.summaryBlocks.addAll(record.blocks)
+        s.charCount = record.messages.sumOf { it.text.length.toLong() }
     }
 
     fun messageTextsForSearch(s: Session): List<String> {

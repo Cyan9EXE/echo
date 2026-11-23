@@ -175,8 +175,8 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                 )
                 AnimatedVisibility(
                     visible = keyTip,
-                    enter = fadeIn(tween(120)),
-                    exit = fadeOut(tween(120)),
+                    enter = fadeIn(tween(Motion.dur(120, Motion.animationsEnabled))),
+                    exit = fadeOut(tween(Motion.dur(120, Motion.animationsEnabled))),
                 ) {
                     Box(
                         Modifier

@@ -260,9 +260,9 @@ internal fun ThinkingBlock(m: Msg, accent: Color, live: Boolean) {
     val thinking = m.thinking
     // 只订阅「是否已开始正文」这一个布尔，避免每个 token 都重组整块（P2-5）。
     val answerStarted by remember(m.id) { derivedStateOf { m.text.isNotBlank() } }
-    // While waiting for the first token the official app still shows a small
-    // "正在思考" header; once the answer starts it collapses to one line.
-    if (thinking.isBlank() && (!live || answerStarted)) return
+    // 首 token 到达前由 AnswerText 的三点呼吸占位；这里只渲染真实思考内容，
+    // 避免「正在思考」标题和三点动画同时出现（P3-4）。
+    if (thinking.isBlank()) return
     // 历史消息默认收起；正在生成的这一条默认展开（P2-5）。
     var open by remember(m.id) { mutableStateOf(live) }
     var collapsedOnce by remember(m.id) { mutableStateOf(false) }

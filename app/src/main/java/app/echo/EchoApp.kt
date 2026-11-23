@@ -59,8 +59,17 @@ import androidx.compose.runtime.setValue
 
 @Composable
 fun EchoApp(state: AppState) {
-    // 系统动画开关是静态查询：每次重组读一次，切到「关闭动画」后下一次重组即生效（P2-6）。
-    val motionOn = ValueAnimator.areAnimatorsEnabled()
+    // 系统动画开关会在运行中改变（开发者选项/省电模式），0.5s 轮询让「关闭动画」
+    // 立即生效，而不是等下一次重组（P2-6）。
+    var motionOn by remember { mutableStateOf(ValueAnimator.areAnimatorsEnabled()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val enabled = ValueAnimator.areAnimatorsEnabled()
+            if (enabled != motionOn) motionOn = enabled
+            Motion.animationsEnabled = enabled
+            delay(500)
+        }
+    }
     SideEffect { Motion.animationsEnabled = motionOn }
     // 主题色是全局静态 token，若逐帧插值，每一帧都会让读取颜色的整棵树重组（P2-6）。
     // 这里改为一次性换色，再用只在绘制阶段取值的 alpha 做 180ms 淡入：
@@ -72,11 +81,13 @@ fun EchoApp(state: AppState) {
     ) {
         val wantDay = if (C.isDay) 1f else 0f
         val wantEye = if (C.isDay && C.eyeMode != 0) 1f else 0f
+        // 先压暗再换色、同帧提交，最后淡入；否则新色会以 alpha=1 先亮一帧（P2-5）。
+        val animate = themeInitialized && motionOn
+        if (animate) themeFade.snapTo(0f)
         C.themeProgress = wantDay
         C.eyeProgress = wantEye
-        if (themeInitialized && motionOn) {
-            themeFade.snapTo(0f)
-            themeFade.animateTo(1f, tween(180, easing = Motion.STANDARD))
+        if (animate) {
+            themeFade.animateTo(1f, tween(Motion.dur(180, motionOn), easing = Motion.CALM))
         } else {
             themeFade.snapTo(1f)
         }
@@ -146,13 +157,18 @@ fun EchoApp(state: AppState) {
             scrim = Color.Black,
         ),
     ) {
-        Box(Modifier.fillMaxSize().background(C.Void).safeDrawingPadding()) {
+        // 整屏一起淡入淡出：外层底色、抽屉、弹层与系统栏不再硬切（P2-5）。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(C.Void)
+                .safeDrawingPadding()
+                .graphicsLayer { alpha = themeFade.value },
+        ) {
             AnimatedContent(
                 targetState = state.current != null,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
                     translationX = 12.dp.toPx() * drawerParallax
-                    // 只在绘制阶段读取，主题切换的淡入不会触发逐帧重组（P2-6）。
-                    alpha = themeFade.value
                 },
                 transitionSpec = {
                     (fadeIn(tween(Motion.dur(200, motionOn))) +

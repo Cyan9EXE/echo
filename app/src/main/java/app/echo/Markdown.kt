@@ -1000,9 +1000,8 @@ internal fun MarkdownText(text: String, live: Boolean = false, accent: Color = C
         }
         return
     }
-    // 流式尾部：稳定段只在新增换行时重新切段/解析，尾行按纯文本渲染并限制在
-    // 最后 [STREAM_TAIL_MAX] 字符窗口内。这样单个 8K 长段落也不会每 token
-    // 重新切段 + 重新排版全文（P2-1）。
+    // 流式尾部：只在「围栏/公式外的空行」或围栏闭合处提交稳定前缀，避免每新增
+    // 一行就把全文重跑一遍切段与解析（P2-1）；未提交部分按纯文本渲染，不隐藏内容。
     val split = remember { StreamSplit() }
     val frame = remember(text) { split.frame(text) }
     Column(Modifier.fillMaxWidth()) {
@@ -1020,56 +1019,146 @@ internal fun MarkdownText(text: String, live: Boolean = false, accent: Color = C
                 }
             }
         }
-        if (frame.newline > frame.tailStart) {
-            key(frame.newline, frame.tailStart) {
-                MarkdownText(frame.prefix, live = false, accent = accent)
-            }
-        }
-        val windowStart = maxOf(frame.newline, text.length - STREAM_TAIL_MAX)
-        val tailLine = if (windowStart <= 0) text else text.substring(windowStart)
-        PlainStreamText(tailLine, accent, truncated = windowStart > frame.newline)
+        if (frame.tail.isNotEmpty()) StreamingTail(frame.tail, accent)
     }
 }
 
-/** 流式渲染的增量切段状态：只有新增换行才重新跑一次 [MdParser.splitSegments]。 */
-private class StreamSplit {
-    private var prevLen = -1
-    private var stable: List<MdSegment> = emptyList()
-    private var tailStart = 0
-    private var newline = -1
-    private var prefix = ""
+/**
+ * 流式渲染的增量切段状态（P2-1）。
+ *
+ * 提交点只取「代码围栏/块级公式之外的空行」与围栏/公式闭合行：这些位置的
+ * 前缀已经完整，可以一次解析成稳定块；其余部分留在 tail 里按纯文本渲染。
+ * 这样完整前缀不会随每个 token 重新切段（原先每遇到一个换行就全量重扫），
+ * 同时 tail 不截断、不隐藏任何已生成内容。
+ */
+internal class StreamSplit {
+    data class Frame(val stable: List<MdSegment>, val tail: String)
 
-    data class Frame(
-        val stable: List<MdSegment>,
-        val tailStart: Int,
-        val newline: Int,
-        val prefix: String,
-    )
+    private var scanPos = 0
+    private var lineStart = 0
+    private var fenceMark: String? = null
+    private var mathOpen = false
+    private var committed = 0
+    private var stableLen = -1
+    private var stable: List<MdSegment> = emptyList()
 
     fun frame(text: String): Frame {
-        val fresh = prevLen < 0 || text.length < prevLen || text.indexOf('\n', prevLen) >= 0
-        if (fresh) {
-            val all = MdParser.splitSegments(text)
-            stable = if (all.size <= 1) emptyList() else all.subList(0, all.size - 1)
-            tailStart = if (all.isEmpty()) text.length else all.last().start
-            newline = text.lastIndexOf('\n')
-            prefix = if (newline > tailStart) text.substring(tailStart, newline) else ""
+        if (text.length < scanPos || text.length < committed) reset()
+        extend(text)
+        if (committed > 0 && committed != stableLen) {
+            stable = MdParser.splitSegments(text.substring(0, committed))
+            stableLen = committed
         }
-        prevLen = text.length
-        return Frame(stable, tailStart, newline, prefix)
+        return Frame(stable, text.substring(committed))
+    }
+
+    private fun reset() {
+        scanPos = 0
+        lineStart = 0
+        fenceMark = null
+        mathOpen = false
+        committed = 0
+        stableLen = -1
+        stable = emptyList()
+    }
+
+    private fun extend(text: String) {
+        var i = scanPos
+        var ls = lineStart
+        while (true) {
+            val nl = text.indexOf('\n', i)
+            if (nl < 0) break
+            val line = text.substring(ls, nl)
+            val trim = line.trim()
+            var commitAt = -1
+            val open = fenceMark
+            if (open != null) {
+                if (trim.startsWith(open)) {
+                    fenceMark = null
+                    commitAt = nl + 1
+                }
+            } else if (mathOpen) {
+                if (trim == "$$" || trim.endsWith("\\]") || (trim.startsWith("$$") && trim.length > 2)) {
+                    mathOpen = false
+                    commitAt = nl + 1
+                }
+            } else {
+                val fence = fenceLine(line)
+                if (fence != null) {
+                    fenceMark = fence
+                } else if (trim == "$$" || (trim.startsWith("$$") && !trim.endsWith("$$"))) {
+                    mathOpen = true
+                } else if (trim.startsWith("\\[") && !trim.contains("\\]")) {
+                    mathOpen = true
+                } else if (trim.isEmpty()) {
+                    commitAt = nl + 1
+                }
+            }
+            if (commitAt > committed) committed = commitAt
+            i = nl + 1
+            ls = i
+        }
+        scanPos = i
+        lineStart = ls
+    }
+
+    private fun fenceLine(line: String): String? {
+        val t = line.trimStart()
+        return when {
+            t.startsWith("\u0060\u0060\u0060") -> "\u0060\u0060\u0060"
+            t.startsWith("~~~") -> "~~~"
+            else -> null
+        }
     }
 }
 
-/** 尾行窗口：流式时只渲染最后这一段字符，避免单行 8K 每 token 全文排版。 */
-private const val STREAM_TAIL_MAX = 800
+/** 未提交尾部超过该长度时按块渲染，旧块字符串不变可跳过重排（P2-1）。 */
+private const val TAIL_CHUNK = 1200
 
 @Composable
-private fun PlainStreamText(text: String, accent: Color, truncated: Boolean = false) {
+private fun StreamingTail(text: String, accent: Color) {
+    if (text.length <= TAIL_CHUNK * 2) {
+        PlainStreamText(text, accent)
+        return
+    }
+    val chunks = remember(text) { chunkText(text, TAIL_CHUNK) }
+    Column(Modifier.fillMaxWidth()) {
+        chunks.forEachIndexed { index, chunk ->
+            if (index == chunks.lastIndex) {
+                PlainStreamText(chunk, accent)
+            } else {
+                Text(
+                    chunk,
+                    color = C.Ivory,
+                    fontSize = 16.sp,
+                    lineHeight = 26.sp,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
+/** 按字符数切块，但不切断代理对，避免流式时出现半个 emoji（P3-1）。 */
+internal fun chunkText(s: String, size: Int): List<String> {
+    if (size <= 0 || s.length <= size) return listOf(s)
+    val out = ArrayList<String>(s.length / size + 1)
+    var i = 0
+    while (i < s.length) {
+        var end = minOf(i + size, s.length)
+        if (end < s.length && s[end - 1].isHighSurrogate()) end++
+        out.add(s.substring(i, end))
+        i = end
+    }
+    return out
+}
+
+@Composable
+private fun PlainStreamText(text: String, accent: Color) {
     // 光标是静态字符，不进无限闪烁动画：每帧重建 AnnotatedString 会让正文
     // 每 110 ms 重新排版一次，正是流式卡顿的一项成本（R4-P1-3）。
-    val annotated = remember(text, truncated) {
+    val annotated = remember(text) {
         buildAnnotatedString {
-            if (truncated) append("\u2026")
             append(text)
             withStyle(SpanStyle(color = accent)) { append("\u258d") }
         }

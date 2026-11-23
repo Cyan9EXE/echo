@@ -250,4 +250,62 @@ class MarkdownTest {
         assertTrue(parts.any { it is MdInline.Styled && it.bold })
         assertTrue(parts.any { it is MdInline.Code })
     }
+    // -- 流式切段与尾部（P2-1/P3-1）--
+
+    @Test
+    fun streamSplitCommitsOnlyOnBlankLine() {
+        val split = StreamSplit()
+        val first = split.frame("第一行")
+        assertTrue(first.stable.isEmpty())
+        assertEquals("第一行", first.tail)
+
+        val second = split.frame("第一行\n第二行")
+        assertTrue(second.stable.isEmpty())
+        assertEquals("第一行\n第二行", second.tail)
+
+        val third = split.frame("第一行\n第二行\n\n第二段")
+        assertEquals(1, third.stable.size)
+        assertEquals("第一行\n第二行\n\n", third.stable[0].text)
+        assertEquals("第二段", third.tail)
+    }
+
+    @Test
+    fun streamSplitTreatsCrlfBlankLine() {
+        val split = StreamSplit()
+        val frame = split.frame("a\r\n\r\nb")
+        assertEquals(1, frame.stable.size)
+        assertEquals("b", frame.tail)
+    }
+
+    @Test
+    fun streamSplitKeepsFenceTogether() {
+        val split = StreamSplit()
+        // 围栏内的空行不是提交点。
+        assertTrue(split.frame("```\na\n\nb\n").stable.isEmpty())
+        // 围栏闭合行本身可以提交整个围栏。
+        val closed = split.frame("```\na\n\nb\n```\n")
+        assertEquals(1, closed.stable.size)
+        assertEquals("", closed.tail)
+    }
+
+    @Test
+    fun streamSplitResetsWhenTextShrinks() {
+        val split = StreamSplit()
+        split.frame("a\n\nb")
+        val shrunk = split.frame("a")
+        assertTrue(shrunk.stable.isEmpty())
+        assertEquals("a", shrunk.tail)
+    }
+
+    @Test
+    fun chunkTextNeverCutsSurrogatePairs() {
+        val s = "a\uD83D\uDE00b\uD83D\uDE00c"
+        val chunks = chunkText(s, 2)
+        assertEquals(s, chunks.joinToString(""))
+        chunks.forEach { chunk ->
+            assertFalse(chunk.last().isHighSurrogate())
+            assertFalse(chunk.first().isLowSurrogate())
+        }
+        assertEquals("a\uD83D\uDE00", chunks[0])
+    }
 }

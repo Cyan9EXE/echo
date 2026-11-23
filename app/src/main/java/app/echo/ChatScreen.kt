@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -115,19 +116,22 @@ internal fun ChatScreen(state: AppState, accent: Color) {
         // 用户一旦主动滑动就暂停跟底，重新看到最后一项时恢复；
         // 这样流式滚动不会抢上滑手势（R4-P1-2）。
         var followTail by remember(s.id) { mutableStateOf(true) }
+        // 只有用户真实拖拽才暂停跟底；程序化的 scrollTo/scrollBy 不再被误判成上滑（P2-2）。
+        LaunchedEffect(s.id, listState) {
+            listState.interactionSource.interactions.collect { interaction ->
+                if (interaction is DragInteraction.Start) followTail = false
+            }
+        }
         LaunchedEffect(s.id, listState) {
             snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-                if (scrolling) {
-                    followTail = false
-                } else {
-                    // 只有真正停在底部（最后一项末端贴住视口）才恢复跟底；
-                    // 在超长回复内部上滑后不会立刻被拽回（R4-P1-2）。
-                    val info = listState.layoutInfo
-                    val last = info.visibleItemsInfo.lastOrNull()
-                    val gap = if (last == null) Float.MAX_VALUE
-                        else (last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding)).toFloat()
-                    followTail = last != null && last.index >= info.totalItemsCount - 1 && gap <= 2f
-                }
+                // 滚动结束时重新判断是否停在底部；首帧/空列表的初值 false 不再把
+                // followTail 置 false（P1-1）。只有真正离开底部才暂停跟底（R4-P1-2）。
+                if (scrolling) return@collect
+                val info = listState.layoutInfo
+                val last = info.visibleItemsInfo.lastOrNull()
+                val gap = if (last == null) 0f else (last.offset + last.size -
+                    (info.viewportEndOffset - info.afterContentPadding)).toFloat()
+                followTail = shouldFollowTail(last?.index, info.totalItemsCount, gap)
             }
         }
         LazyColumn(
@@ -435,3 +439,11 @@ internal fun ContextBar(state: AppState, accent: Color, onExport: () -> Unit = {
  */
 internal fun tailRescueIndex(lastVisibleIndex: Int, totalItems: Int): Int? =
     if (totalItems > 0 && lastVisibleIndex in 0 until totalItems - 1) totalItems - 1 else null
+
+/**
+ * 滚动停止后是否恢复跟底（P1-1/P2-2）：空列表按「在底部」处理，只有确实停在
+ * 最后一项末端（gap ≤ 2px）才恢复；程序化 scrollTo/scrollBy 不产生
+ * DragInteraction，因此不会再被误判成用户上滑。抽成纯函数便于 JVM 单测（P2-7）。
+ */
+internal fun shouldFollowTail(lastIndex: Int?, totalItems: Int, gap: Float): Boolean =
+    lastIndex == null || (lastIndex >= totalItems - 1 && gap <= 2f)

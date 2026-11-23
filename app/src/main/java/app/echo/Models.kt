@@ -98,15 +98,19 @@ internal data class IndexRow(
     val pinned: Boolean,
     val costCny: Double,
     val roles: String,
-    val systemSent: Boolean,
     val chars: Long,
 )
 
 class MessageList : AbstractMutableList<Msg>() {
-    private val loaded = ArrayList<Msg>()
+    /**
+     * 整体发布而不是原地改 ArrayList：ready 之后 add/remove/set 也会让读 size/get
+     * 的 Compose 内容自动失效，不再依赖调用方手动碰 ready/revision（P2-4）。
+     */
+    private var loaded by mutableStateOf<List<Msg>>(emptyList())
     var roleSeq: String = ""
         private set
-    /** Compose 可观察：异步解析完成后 UI 必须能重组，不能再用普通布尔。 */
+
+    /** Compose 可观察：异步解析完成后 UI 必须能重组。 */
     var ready by mutableStateOf(false)
         private set
     private val stubUser = Msg(role = "user", text = "")
@@ -122,29 +126,40 @@ class MessageList : AbstractMutableList<Msg>() {
     }
 
     override fun add(index: Int, element: Msg) {
-        check(ready) { "MessageList 尚未载入，禁止写入" }
-        loaded.add(index, element)
+        requireLoaded()
+        val next = ArrayList<Msg>(loaded.size + 1)
+        next.addAll(loaded.subList(0, index))
+        next.add(element)
+        next.addAll(loaded.subList(index, loaded.size))
+        loaded = next
         roleSeq = roleSeq.substring(0, index) + roleOf(element) + roleSeq.substring(index)
     }
 
     override fun removeAt(index: Int): Msg {
-        check(ready) { "MessageList 尚未载入，禁止写入" }
+        requireLoaded()
+        val next = ArrayList<Msg>(loaded.size - 1)
+        next.addAll(loaded.subList(0, index))
+        next.addAll(loaded.subList(index + 1, loaded.size))
+        val removed = loaded[index]
+        loaded = next
         roleSeq = roleSeq.substring(0, index) + roleSeq.substring(index + 1)
-        return loaded.removeAt(index)
+        return removed
     }
 
     override fun set(index: Int, element: Msg): Msg {
-        check(ready) { "MessageList 尚未载入，禁止写入" }
+        requireLoaded()
+        val next = ArrayList<Msg>(loaded)
+        val old = next.set(index, element)
+        loaded = next
         roleSeq = roleSeq.substring(0, index) + roleOf(element) + roleSeq.substring(index + 1)
-        return loaded.set(index, element)
+        return old
     }
 
     /** @return true when this parse was applied; false when a newer state already won. */
     fun markReady(list: List<Msg>): Boolean {
         // A late async parse must not overwrite messages added after ready (P1-1).
         if (ready) return false
-        loaded.clear()
-        loaded.addAll(list)
+        loaded = ArrayList(list)
         val sb = StringBuilder(list.size)
         for (m in list) sb.append(roleOf(m))
         roleSeq = sb.toString()
@@ -155,14 +170,19 @@ class MessageList : AbstractMutableList<Msg>() {
     fun markEmpty() = markReady(emptyList())
 
     fun markUnloaded(roles: String) {
-        loaded.clear()
+        loaded = emptyList()
         roleSeq = roles
         ready = false
     }
 
     fun unload() {
-        loaded.clear()
+        loaded = emptyList()
         ready = false
+    }
+
+    /** 写路径的显式前置条件；与 UI 可见性解耦，但仍不允许在未载入时写入（P2-4）。 */
+    private fun requireLoaded() {
+        check(ready) { "MessageList 尚未载入，禁止写入" }
     }
 
     private fun roleOf(m: Msg): Char = if (m.role == "user") 'u' else 'a'
@@ -181,7 +201,6 @@ class Session(
     var pinned: Boolean = false,
     var costCny: Double = 0.0,
     var charCount: Long = 0L,
-    var systemSent: Boolean = false,
 ) {
     var expired: Boolean by mutableStateOf(expired)
     var revived: Boolean by mutableStateOf(revived)

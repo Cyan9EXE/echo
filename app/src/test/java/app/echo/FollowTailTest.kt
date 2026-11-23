@@ -1,7 +1,9 @@
 package app.echo
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** 跟底判定的纯逻辑回归：新消息插入后必须能滚到新尾，不能停在旧尾（P1-1）。 */
@@ -27,5 +29,17 @@ class FollowTailTest {
     fun noRescueForEmptyList() {
         assertNull(tailRescueIndex(-1, 0))
         assertNull(tailRescueIndex(0, 0))
+    }
+
+    @Test
+    fun followTailAfterScrollStops() {
+        // 首帧/空列表不能把 followTail 置 false（P1-1）。
+        assertTrue(shouldFollowTail(null, 0, 0f))
+        // 停在最后一项末端才恢复；差 3px 就视为离开底部（R4-P1-2）。
+        assertTrue(shouldFollowTail(4, 5, 0f))
+        assertTrue(shouldFollowTail(4, 5, 2f))
+        assertFalse(shouldFollowTail(4, 5, 3f))
+        // 不在最后一项上永远不恢复。
+        assertFalse(shouldFollowTail(3, 5, 0f))
     }
 }

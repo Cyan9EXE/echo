@@ -124,18 +124,6 @@ object C {
 
     fun eyeDim(): Color = mixOklab(eyeLit(), Color.Black, 0.38f)
 
-    /**
-     * 目标外观起点的底色亮度，用于决定这次外观切换的动画时长：
-     * 夜间与日间的亮度差接近 0.9，需要放慢；日间与护眼两档之间只差一点点。
-     */
-    fun voidLuminanceFor(day: Boolean, eye: Int = 0): Float {
-        if (day && eye == 0 && customThemeOn) return voidRamp.customDay().luminance()
-        val base = if (day) Color(0xFFF4F2ED) else Color(0xFF050608)
-        if (!day || eye == 0) return base.luminance()
-        val target = if (eye == 2) Color(0xFFEEF3E6) else Color(0xFFF7F0DF)
-        return mixOklab(base, target, 1f).luminance()
-    }
-
     /** 预设强调色在当前的日夜/护眼进度下的实际颜色（自定义色不在此列）。 */
     fun presetAccent(index: Int): Color {
         if (index !in skins.indices) return Color.Transparent
@@ -153,12 +141,6 @@ object C {
         }
         val bottom = if (customMode) accent else tone(accent)
         return ThemeMark(top, bottom)
-    }
-
-    fun shapeProgress(raw: Float): Float {
-        val x = raw.coerceIn(0f, 1f) * 2f - 1f
-        val w = 1f - x * x
-        return ((x * (1f + 0.45f * w * w)) + 1f) / 2f
     }
 
     val Void get() = voidRamp.at(themeProgress)
@@ -313,7 +295,7 @@ private class Ramp(
 
 /**
  * 一个 token 的完整外观轴：纸白 / 暖黄 / 淡绿三条 ramp，外加可选的自定义底色 ramp。
- * 护眼档用 eyeProgress 平滑过渡；夜间三档都回同一墨端点。
+ * 护眼档由 eyeProgress 直接取端点（外层做一次整屏淡入）；夜间三档都回同一墨端点。
  */
 private class LookRamp(
     private val night: Color,

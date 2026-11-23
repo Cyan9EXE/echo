@@ -305,7 +305,12 @@ internal fun ThemeSwitcher(state: AppState, accent: Color) {
                 },
             contentAlignment = Alignment.Center,
         ) {
-            SunMoonMark(progress = C.themeProgress, accent = accent, modifier = Modifier.size(28.dp))
+            val sunMoonProgress by animateFloatAsState(
+                targetValue = C.themeProgress,
+                animationSpec = tween(Motion.dur(280, Motion.animationsEnabled)),
+                label = "sunMoon",
+            )
+            SunMoonMark(progress = sunMoonProgress, accent = accent, modifier = Modifier.size(28.dp))
         }
         Spacer(Modifier.width(2.dp))
         Box(
