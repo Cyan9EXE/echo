@@ -1,7 +1,7 @@
 name: CI
 
 # 路线图 10：JVM 单测 + Kotlin 编译 + mock SSE 冒烟。
-# 仓库没有 gradle-wrapper.jar，因此显式安装 Gradle 8.9。
+# 仓库内带 Gradle 8.9 wrapper（含 distributionSha256Sum），CI 直接用 ./gradlew 保证可复现。
 on:
   push:
     branches: [ main ]
@@ -28,10 +28,8 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.9
+      - name: Set up Gradle (wrapper 8.9)
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
 
       - name: Set up Android SDK (platform 35 + build-tools 35.0.0)
         uses: android-actions/setup-android@v3
@@ -39,10 +37,10 @@ jobs:
           packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
 
       - name: Compile Kotlin
-        run: gradle :app:compileDebugKotlin --console=plain --no-daemon
+        run: ./gradlew :app:compileDebugKotlin --console=plain --no-daemon
 
       - name: Run JVM unit tests
-        run: gradle :app:testDebugUnitTest --console=plain --no-daemon
+        run: ./gradlew :app:testDebugUnitTest --console=plain --no-daemon
 
       - name: Mock SSE server selftest
         run: python3 scripts/mock_sse_server.py --selftest

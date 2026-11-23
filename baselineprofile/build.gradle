@@ -5,7 +5,7 @@ plugins {
 }
 
 // Official AndroidX macrobenchmark module used to collect the Baseline Profile.
-// Run: /d/gradle/gradle-8.9/bin/gradle :app:generateBaselineProfile
+// Run: ./gradlew :app:generateBaselineProfile
 android {
     namespace 'app.echo.baselineprofile'
     compileSdk 35

@@ -412,7 +412,7 @@ class AppState(private val context: Context) {
         setCurrentSession(s.id)
         markDirty(s.id)
         refreshContextTokens()
-        save()
+        save(forceIndex = true)
     }
 
     fun open(session: Session) {
@@ -464,7 +464,8 @@ class AppState(private val context: Context) {
             notice = "会话内容还在载入，请稍候再发送。"
             return false
         }
-        if (session != null && session.expired && !session.revived) {
+        if (session != null && isExpiredNow(session)) {
+            session.expired = true
             notice = "这段对话已失效：先点「复活并继续」，恢复完整上下文后再发送。"
             return false
         }
@@ -619,7 +620,7 @@ class AppState(private val context: Context) {
                     // Single terminal state: invalidate the onDone(false) that follows (P2-1).
                     streamSeq++
                     revision++
-                    save()
+                    save(forceIndex = true)
                 }
             },
             onDone = { _ ->
@@ -644,7 +645,7 @@ class AppState(private val context: Context) {
                     finishUsage(session, reply)
                     markDirty(sessionId)
                     revision++
-                    save()
+                    save(forceIndex = true)
                 }
             },
         )
@@ -670,8 +671,8 @@ class AppState(private val context: Context) {
         streamSessionId = null
         refreshContextTokens()
         revision++
-        // 停止是终态：立即落盘，而不是等 260/700ms 的防抖（P2-4）。
-        save()
+        // 停止是终态：立即落盘（含索引），而不是等 260/700ms 的防抖（P2-4）。
+        save(forceIndex = true)
     }
 
     fun revive(session: Session, mode: String = "full") {
@@ -698,7 +699,7 @@ class AppState(private val context: Context) {
             notice = if (mode == "summary") "这段会话较短，无需摘要；已按完整原文恢复。" else "已恢复完整上下文：当前分支全部原文会作为后续上下文，由你的 API Key 直连支付。"
         }
         markDirty(session.id)
-        save()
+        save(forceIndex = true)
         refreshContextTokens()
         revision++
     }
@@ -709,7 +710,8 @@ class AppState(private val context: Context) {
             return
         }
         val session = current ?: return
-        if (session.expired && !session.revived) {
+        if (isExpiredNow(session)) {
+            session.expired = true
             notice = "这段对话已失效：先点「复活并继续」，恢复完整上下文后再发送。"
             return
         }
@@ -988,6 +990,24 @@ class AppState(private val context: Context) {
             m.outputTokens / 1_000_000.0 * out
     }
 
+    /** 失效以 updatedAt 现场派生，避免冷启动后按索引里的旧 expired 字段误判（P2-8）。 */
+    private fun isExpiredNow(s: Session): Boolean =
+        !s.revived && System.currentTimeMillis() - s.updatedAt > 604_800_000L
+
+    /** 进入前台/启动后重算 7 天失效标记；长开进程也能及时变灰（P2-8）。 */
+    fun refreshExpired() {
+        val now = System.currentTimeMillis()
+        var changed = false
+        for (s in sessions) {
+            val expired = !s.revived && now - s.updatedAt > 604_800_000L
+            if (s.expired != expired) {
+                s.expired = expired
+                changed = true
+            }
+        }
+        if (changed) revision++
+    }
+
     private fun finishUsage(session: Session, reply: Msg) {
         val cost = msgCost(reply)
         reply.costCny = cost
@@ -996,6 +1016,8 @@ class AppState(private val context: Context) {
 
     private fun markDirty(id: String) {
         dirtyIds.add(id)
+        // 索引脏但不必每次落盘都全量重写；由 save() 按 30s 节流，终态事件再 forceIndex（P2-5）。
+        indexDirty = true
     }
 
     private fun scheduleSave() {
@@ -1009,15 +1031,20 @@ class AppState(private val context: Context) {
     }
 
     private var forceIndexNext = false
+    private var indexDirty = true
+    private var lastIndexWriteAt = 0L
 
     fun save(forceIndex: Boolean = false) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             main.post { save(forceIndex) }
             return
         }
-        val mustIndex = forceIndex || forceIndexNext
+        val urgent = forceIndex || forceIndexNext
         forceIndexNext = false
-        if (dirtyIds.isEmpty() && !mustIndex) return
+        val now = System.currentTimeMillis()
+        // 流式期间每 ~2s 就会 markDirty；若每次都全量重写 3800 行索引会放大写 I/O（P2-5）。
+        val indexDue = indexDirty && (urgent || now - lastIndexWriteAt >= 30_000L)
+        if (dirtyIds.isEmpty() && !indexDue) return
         val ids = ArrayList(dirtyIds)
         dirtyIds.clear()
         val pairs = ArrayList<Pair<String, SessionSnapshot>>(ids.size)
@@ -1039,14 +1066,23 @@ class AppState(private val context: Context) {
             for ((id, snap) in pairs) {
                 if (runCatching { writeAtomic(msgFile(id), serializeSnapshot(snap)) }.isFailure) failed.add(id)
             }
-            val indexOk = runCatching {
-                writeAtomic(indexFile, serializeIndex(allSessions.map(::sessionIndexRow)))
-            }.isSuccess
+            val indexOk = if (indexDue) {
+                runCatching {
+                    writeAtomic(indexFile, serializeIndex(allSessions.map(::sessionIndexRow)))
+                }.isSuccess
+            } else {
+                true
+            }
             // 写失败不能静默丢改动：把 id 放回 dirty，下次保存重试（P2-8）。
             if (failed.isNotEmpty() || !indexOk) {
                 main.post {
                     dirtyIds.addAll(failed)
                     if (!indexOk) forceIndexNext = true
+                }
+            } else if (indexDue) {
+                main.post {
+                    indexDirty = false
+                    lastIndexWriteAt = System.currentTimeMillis()
                 }
             }
         }
@@ -1364,6 +1400,7 @@ class AppState(private val context: Context) {
             sessions.addAll(sorted)
         }
         invalidateCurrent()
+        refreshExpired()
         // 冷启动必须把上次的会话重新装回 current：只恢复 id 不加载消息，聊天页会一直
         // 停在 ready=false 的 stub 列表上（P1-1）。
         val restored = currentId?.let { id -> sessions.firstOrNull { it.id == id } }

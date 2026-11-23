@@ -25,7 +25,7 @@ if [ -x "$ROOT/gradlew" ] && [ -f "$ROOT/gradle/wrapper/gradle-wrapper.jar" ]; t
 else
   GRADLE_CMD="$(command -v gradle || true)"
   if [ -z "$GRADLE_CMD" ] && [ -x /d/gradle/gradle-8.9/bin/gradle ]; then GRADLE_CMD=/d/gradle/gradle-8.9/bin/gradle; fi
-  [ -n "$GRADLE_CMD" ] || fail "未找到 Gradle 8.9（仓库无 wrapper，请安装 gradle 或在 PATH 提供）"
+  [ -n "$GRADLE_CMD" ] || fail "未找到 Gradle 8.9（优先使用仓库 ./gradlew；也可在 PATH 提供 gradle）"
 fi
 log "Gradle=$GRADLE_CMD"
 
