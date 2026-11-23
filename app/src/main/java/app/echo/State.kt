@@ -147,6 +147,13 @@ class AppState(private val context: Context) {
     private var streamSessionId: String? = null
     private var activeStream: StreamHandle? = null
     private var flushLive: (() -> Unit)? = null
+    private var lastStreamSaveAt = 0L
+
+    /** Session id currently streaming; UI uses it to pick the live message (P2-2). */
+    val liveSessionId: String? get() = if (streaming) streamSessionId else null
+
+    fun isStreaming(sessionId: String?): Boolean =
+        streaming && sessionId != null && sessionId == streamSessionId
 
     val sessions = mutableStateListOf<Session>()
     // current is read by most composables and by token estimation; scanning the
@@ -417,6 +424,9 @@ class AppState(private val context: Context) {
 
     fun backHome() {
         typing = false
+        // Keep streaming; flush buffered text and persist before leaving the chat (P2-3).
+        flushLive?.invoke()
+        flushPending()
         setCurrentSession(null)
         refreshContextTokens()
     }
@@ -474,7 +484,9 @@ class AppState(private val context: Context) {
         markDirty(session.id)
         scheduleSave()
 
-        val includeSystem = systemPrompt.isNotBlank() && !session.systemSent
+        // The official Messages API is stateless: send system every turn (P2-7).
+        val sysPrompt = systemPrompt.trim().takeIf { it.isNotBlank() }
+        val includeSystem = sysPrompt != null
         val history = buildHistory(session, thinking)
         val sessionId = session.id
         streamSessionId = sessionId
@@ -497,7 +509,7 @@ class AppState(private val context: Context) {
             model = effectiveModel,
             thinking = thinking,
             webSearch = webSearch,
-            systemPrompt = if (includeSystem) systemPrompt.trim() else null,
+            systemPrompt = sysPrompt,
             messages = history,
             maxTokens = maxTokens,
             flushMs = if (performanceMode) 45 else 60,
@@ -510,6 +522,14 @@ class AppState(private val context: Context) {
                     session.updatedAt = System.currentTimeMillis()
                     publish(false)
                     bumpRevisionThrottled()
+
+                    // Flush streaming text to disk every ~2s so a kill loses at most 2s (P2-3).
+                    val nowUptime = android.os.SystemClock.uptimeMillis()
+                    if (nowUptime - lastStreamSaveAt >= 2_000L) {
+                        lastStreamSaveAt = nowUptime
+                        markDirty(sessionId)
+                        scheduleSave()
+                    }
                 }
             },
             onThinking = { chunk ->
@@ -562,6 +582,8 @@ class AppState(private val context: Context) {
                     streamSessionId = null
                     refreshContextTokens()
                     markDirty(sessionId)
+                    // Single terminal state: invalidate the onDone(false) that follows (P2-1).
+                    streamSeq++
                     revision++
                     save()
                 }
@@ -640,16 +662,40 @@ class AppState(private val context: Context) {
     }
 
     fun retryLast() {
+        if (streaming) {
+            notice = "正在生成；先点暂停，再发送新的消息。"
+            return
+        }
         val session = current ?: return
+        if (session.expired && !session.revived) {
+            notice = "这段对话已失效：先点「复活并继续」，恢复完整上下文后再发送。"
+            return
+        }
+        if (apiKey.isBlank()) {
+            notice = "先填入 API Key，再开始对话。"
+            showSettings = true
+            return
+        }
         ensureReadyBlocking(session)
-        val lastUser = session.messages.lastOrNull { it.role == "user" } ?: return
-        if (session.messages.lastOrNull()?.role == "assistant") session.messages.removeAt(session.messages.size - 1)
-        session.messages.remove(lastUser)
-        send(lastUser.text)
+        if (!session.messages.ready) return
+        val lastUserIndex = session.messages.indexOfLast { it.role == "user" }
+        if (lastUserIndex < 0) return
+        val lastUser = session.messages[lastUserIndex]
+        val lastAssistant = if (lastUserIndex + 1 < session.messages.size &&
+            session.messages[lastUserIndex + 1].role == "assistant"
+        ) session.messages[lastUserIndex + 1] else null
+        if (lastAssistant != null) session.messages.removeAt(lastUserIndex + 1)
+        session.messages.removeAt(lastUserIndex)
+        // Deleting before sending is unsafe: guards may reject, so restore on failure (P1-2).
+        if (!send(lastUser.text)) {
+            session.messages.add(lastUser)
+            if (lastAssistant != null) session.messages.add(lastAssistant)
+            notice = "发送失败，已恢复上一轮消息。"
+        }
     }
 
     private fun historyMessages(session: Session): List<Msg> =
-        session.messages.filter { it.text.isNotBlank() && (it.role == "user" || it.role == "assistant") }
+        session.messages.filter { it.text.isNotBlank() && !it.failed && (it.role == "user" || it.role == "assistant") }
 
     private fun buildHistory(session: Session, thinking: Boolean): List<ApiMsg> {
         val all = historyMessages(session)
@@ -858,16 +904,22 @@ class AppState(private val context: Context) {
         contextTokens = ((base + live) / 2.5).toInt() + 12
     }
 
-    fun isPeakNow(): Boolean {
-        val now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))
-        if (now.dayOfWeek == java.time.DayOfWeek.SATURDAY || now.dayOfWeek == java.time.DayOfWeek.SUNDAY) return false
-        val minute = now.hour * 60 + now.minute
+    fun isPeakNow(): Boolean = isPeakAt(System.currentTimeMillis())
+
+    /** Peak pricing is computed at message time, never re-priced at display time (P3-4). */
+    private fun isPeakAt(epochMillis: Long): Boolean {
+        val at = java.time.Instant.ofEpochMilli(epochMillis).atZone(java.time.ZoneId.of("Asia/Shanghai"))
+        if (at.dayOfWeek == java.time.DayOfWeek.SATURDAY || at.dayOfWeek == java.time.DayOfWeek.SUNDAY) return false
+        val minute = at.hour * 60 + at.minute
         return (minute in 540..719) || (minute in 840..1079)
     }
 
-    fun msgCost(m: Msg): Double {
+    fun msgCostForDisplay(m: Msg): Double = msgCost(m, if (m.time > 0L) isPeakAt(m.time) else isPeakNow())
+
+    fun msgCost(m: Msg): Double = msgCost(m, isPeakNow())
+
+    private fun msgCost(m: Msg, peak: Boolean): Double {
         if (m.inputTokens == 0 && m.outputTokens == 0) return 0.0
-        val peak = isPeakNow()
         val hit: Double
         val miss: Double
         val out: Double
@@ -915,11 +967,17 @@ class AppState(private val context: Context) {
         val ids = ArrayList(dirtyIds)
         dirtyIds.clear()
         val snapshots = ArrayList<SessionSnapshot>(ids.size)
+        val notReady = ArrayList<String>(ids.size)
         for (id in ids) {
             val s = sessions.firstOrNull { it.id == id } ?: continue
-            if (!s.messages.ready) continue
+            if (!s.messages.ready) {
+                notReady.add(id)
+                continue
+            }
             snapshots.add(snapshotSession(s))
         }
+        // Keep dirty flags for not-yet-loaded sessions so they persist later (P2-3).
+        dirtyIds.addAll(notReady)
         // Index rows touch Compose state and message lists, so they are still built on
         // the main thread; only JSON encoding and disk writes happen on the store thread.
         val rows = sessions.map(::sessionIndexRow)
@@ -1176,8 +1234,14 @@ class AppState(private val context: Context) {
 
     private fun applyLoaded(list: List<Session>) {
         val sorted = list.sortedByDescending { it.updatedAt }
+        // The cold-start index may lag behind memory: keep local/dirty/current sessions (P3-2).
+        val loadedIds = sorted.mapTo(HashSet()) { it.id }
+        val localOnly = sessions.filter {
+            it.id !in loadedIds && (it.id in dirtyIds || it.id == streamSessionId || it.id == currentId)
+        }
         Snapshot.withMutableSnapshot {
             sessions.clear()
+            sessions.addAll(localOnly)
             sessions.addAll(sorted)
         }
         invalidateCurrent()
@@ -1213,7 +1277,7 @@ class AppState(private val context: Context) {
 
     private fun evictLoaded() {
         sessions.forEach { s ->
-            if (s.id == currentId || dirtyIds.contains(s.id)) return@forEach
+            if (s.id == currentId || s.id == streamSessionId || dirtyIds.contains(s.id)) return@forEach
             if (s.messages.ready) s.messages.unload()
         }
         readyOrder.clear()
@@ -1234,6 +1298,8 @@ class AppState(private val context: Context) {
             return
         }
         if (f.length() <= 48_000L) {
+            // Sync parse wins: drop the async marker; a late async result is dropped by markReady's guard (P1-1).
+            parsingIds.remove(s.id)
             runCatching { parseSessionRecord(f, s) }.onFailure { s.messages.markEmpty() }
             if (s.id == currentId) {
                 refreshContextTokens()

@@ -172,7 +172,7 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
             }
             if (state.showBillingHints && (m.inputTokens > 0 || m.outputTokens > 0)) {
                 Spacer(Modifier.height(5.dp))
-                val shownCost = if (m.costCny > 0.0) m.costCny else state.msgCost(m)
+                val shownCost = state.msgCostForDisplay(m)
                 // 旧版本保存的消息没有输入侧用量，只显示真实存在的输出量，避免「输入 0」这种假数据。
                 val usageText = if (m.inputTokens > 0) {
                     " · 输入 " + m.inputTokens + " / 输出 " + m.outputTokens + " tokens"

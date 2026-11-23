@@ -140,6 +140,8 @@ class MessageList : AbstractMutableList<Msg>() {
     }
 
     fun markReady(list: List<Msg>) {
+        // A late async parse must not overwrite messages added after ready (P1-1).
+        if (ready) return
         loaded.clear()
         loaded.addAll(list)
         val sb = StringBuilder(list.size)

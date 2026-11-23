@@ -108,7 +108,8 @@ internal fun ChatScreen(state: AppState, accent: Color) {
             SummaryCard(state, s, accent)
         }
         val listState = rememberLazyListState()
-        val liveId = if (state.streaming) s.messages.lastOrNull()?.id else null
+        // Only the streaming session is live; the global flag would mark B live too (P2-2).
+        val liveId = if (state.liveSessionId == s.id) s.messages.lastOrNull()?.id else null
         // Follow the tail only while the user is already near the bottom. The old
         // implementation force-scrolled every 80 ms during streaming regardless of
         // the user's position, which stole gestures and kept the list re-laying out.

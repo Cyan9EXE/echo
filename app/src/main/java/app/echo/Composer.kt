@@ -67,8 +67,8 @@ internal fun Composer(state: AppState, accent: Color) {
 
     // 草稿不能只在离开输入区时落盘：进程被系统杀掉前不会有 onDispose（P2-3）。
     // 输入停顿 300ms 写一次 prefs，再在退到后台时补写一次，最坏丢最近 300ms 的输入。
+    // Persist even an empty draft: clearing then killing the app must not restore old text (P3-1).
     LaunchedEffect(state.draft) {
-        if (state.draft.isEmpty()) return@LaunchedEffect
         delay(300)
         state.persistDraft()
     }
@@ -179,7 +179,7 @@ internal fun Composer(state: AppState, accent: Color) {
                         )
                     }
                     Spacer(Modifier.width(8.dp))
-                    if (state.streaming) {
+                    if (state.isStreaming(state.currentId)) {
                         Pressable(
                             onClick = { state.stopGenerating() },
                             modifier = Modifier.size(44.dp),

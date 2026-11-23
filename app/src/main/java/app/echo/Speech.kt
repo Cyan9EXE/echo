@@ -428,6 +428,13 @@ object Reader {
 
     private fun requestFocus(my: Int): Boolean {
         val am = audioManager ?: return false
+        // Abandon the previous request before replacing it, or the old one leaks (P2-4).
+        synchronized(stateLock) {
+            val old = focusRequest
+            focusRequest = null
+            focusGeneration = -1
+            if (old != null) runCatching { am.abandonAudioFocusRequest(old) }
+        }
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(speechAttrs())
             .setWillPauseWhenDucked(false)
@@ -677,11 +684,11 @@ object Recorder {
             val durationMs = obj?.optLong("duration_ms", 0L) ?: 0L
             val seconds = if (durationMs > 0) ceil(durationMs / 1000.0).toInt() else 1
             val cost = Billing.asrCost(seconds)
-            UsageLedger.recordAsr(seconds, cost, "语音识别")
             main.post {
                 transcribing = false
                 elapsed = 0
                 if (discard) return@post
+                UsageLedger.recordAsr(seconds, cost, "语音识别")
                 if (text.isBlank()) {
                     onError("没有识别到语音内容")
                 } else {
