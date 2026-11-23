@@ -439,6 +439,10 @@ class AppState(private val context: Context) {
         invalidateCurrent()
         if (currentId == session.id) setCurrentSession(null)
         dirtyIds.remove(session.id)
+        // 只删文件不标记索引：save(forceIndex=true) 会因 indexDirty 为 false 直接返回，
+        // 旧索引仍指向这行，重启后会话「复活」（R8-P1-1）。
+        indexDirty = true
+        indexEpoch++
         val f = msgFile(session.id)
         io.execute { runCatching { f.delete() } }
         refreshContextTokens()
@@ -474,11 +478,13 @@ class AppState(private val context: Context) {
             showSettings = true
             return false
         }
+        var createdSession = false
         if (session == null) {
             session = Session(title = body.take(24))
             session.messages.markEmpty()
             sessions.add(0, session)
             setCurrentSession(session.id)
+            createdSession = true
         }
         if (session.messages.isEmpty()) session.title = body.take(24)
         session.messages.add(Msg(role = "user", text = body))
@@ -493,6 +499,8 @@ class AppState(private val context: Context) {
         notice = null
         markDirty(session.id)
         scheduleSave()
+        // 新会话只存在于内存行：若沿用 30s 索引窗口不落盘，进程被杀后这个会话永久不可见（R8-P1-2）。
+        if (createdSession) save(forceIndex = true)
 
         // The official Messages API is stateless: send system every turn (P2-7).
         val sysPrompt = systemPrompt.trim().takeIf { it.isNotBlank() }
@@ -1018,6 +1026,8 @@ class AppState(private val context: Context) {
         dirtyIds.add(id)
         // 索引脏但不必每次落盘都全量重写；由 save() 按 30s 节流，终态事件再 forceIndex（P2-5）。
         indexDirty = true
+        // 写盘期间可能又来了新的脏变更：epoch 变化时 IO 成功回调不能清掉 indexDirty（R8-P1-2）。
+        indexEpoch++
     }
 
     private fun scheduleSave() {
@@ -1033,6 +1043,8 @@ class AppState(private val context: Context) {
     private var forceIndexNext = false
     private var indexDirty = true
     private var lastIndexWriteAt = 0L
+    /** 脏标记代数：save() 开始时快照，IO 成功后只有代数未变才清 indexDirty（R8-P1-2）。 */
+    private var indexEpoch = 0L
 
     fun save(forceIndex: Boolean = false) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
@@ -1043,8 +1055,10 @@ class AppState(private val context: Context) {
         forceIndexNext = false
         val now = System.currentTimeMillis()
         // 流式期间每 ~2s 就会 markDirty；若每次都全量重写 3800 行索引会放大写 I/O（P2-5）。
-        val indexDue = indexDirty && (urgent || now - lastIndexWriteAt >= 30_000L)
+        // urgent 必须无条件写索引：删除/新建会话只靠 forceIndex 传达到这里（R8-P1-1）。
+        val indexDue = PersistencePolicy.indexWriteDue(urgent, indexDirty, now, lastIndexWriteAt)
         if (dirtyIds.isEmpty() && !indexDue) return
+        val epochAtStart = indexEpoch
         val ids = ArrayList(dirtyIds)
         dirtyIds.clear()
         val pairs = ArrayList<Pair<String, SessionSnapshot>>(ids.size)
@@ -1081,8 +1095,13 @@ class AppState(private val context: Context) {
                 }
             } else if (indexDue) {
                 main.post {
-                    indexDirty = false
-                    lastIndexWriteAt = System.currentTimeMillis()
+                    // 写盘期间又有新改动时保留脏标记，下一轮强制写索引（R8-P1-2）。
+                    if (PersistencePolicy.mayClearIndexDirty(epochAtStart, indexEpoch)) {
+                        indexDirty = false
+                        lastIndexWriteAt = System.currentTimeMillis()
+                    } else {
+                        forceIndexNext = true
+                    }
                 }
             }
         }
@@ -1266,7 +1285,6 @@ class AppState(private val context: Context) {
         return arr.toString()
     }
 
-    private fun buildIndexJson(): String = indexJson(sessions)
 
     private fun serializeSession(s: Session): String {
         val arr = JSONArray()
@@ -1306,35 +1324,40 @@ class AppState(private val context: Context) {
     /** 索引损坏时从本地消息文件重建：只认「文件名能反解出 id」的文件（P2-6）。 */
     private fun rebuildIndexFromMessages(): List<Session> {
         val files = msgDir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: return emptyList()
-        val now = System.currentTimeMillis()
         val out = ArrayList<Session>(files.size)
         for (f in files) {
-            val record = readSessionRecord(f) ?: continue
-            if (record.messages.isEmpty()) continue
-            val id = f.name.substringBeforeLast('-')
-            if (id.isBlank() || msgFile(id) != f) continue
-            val last = record.messages.lastOrNull()?.time?.takeIf { it > 0L } ?: f.lastModified()
-            val s = Session(
-                id = id,
-                title = record.messages.firstOrNull { it.role == "user" }?.text?.trim()?.take(24).orEmpty()
-                    .ifBlank { "未命名会话" },
-                updatedAt = last,
-                expired = now - last > 604_800_000L,
-                revived = false,
-                contextMode = if (record.summary.isNotBlank()) "summary" else "full",
-                summaryCovered = record.covered.coerceAtLeast(0),
-                imported = false,
-                pinned = false,
-                costCny = 0.0,
-            )
-            s.messages.markReady(record.messages)
-            s.messages.unload()
-            s.summary = record.summary
-            s.summaryBlocks.addAll(record.blocks)
-            s.charCount = record.messages.sumOf { it.text.length.toLong() }
-            out.add(s)
+            sessionFromMessageFile(f)?.let(out::add)
         }
         return out
+    }
+
+    /** 单个消息文件 → 会话行；文件名反解不出 id 或内容为空时返回 null（R8-P2-2 复用）。 */
+    private fun sessionFromMessageFile(f: File): Session? {
+        val record = readSessionRecord(f) ?: return null
+        if (record.messages.isEmpty()) return null
+        val id = f.name.substringBeforeLast('-')
+        if (id.isBlank() || msgFile(id) != f) return null
+        val now = System.currentTimeMillis()
+        val last = record.messages.lastOrNull()?.time?.takeIf { it > 0L } ?: f.lastModified()
+        val s = Session(
+            id = id,
+            title = record.messages.firstOrNull { it.role == "user" }?.text?.trim()?.take(24).orEmpty()
+                .ifBlank { "未命名会话" },
+            updatedAt = last,
+            expired = now - last > 604_800_000L,
+            revived = false,
+            contextMode = if (record.summary.isNotBlank()) "summary" else "full",
+            summaryCovered = record.covered.coerceAtLeast(0),
+            imported = false,
+            pinned = false,
+            costCny = 0.0,
+        )
+        s.messages.markReady(record.messages)
+        s.messages.unload()
+        s.summary = record.summary
+        s.summaryBlocks.addAll(record.blocks)
+        s.charCount = record.messages.sumOf { it.text.length.toLong() }
+        return s
     }
 
     private fun loadIndexAsync() {
@@ -1354,13 +1377,33 @@ class AppState(private val context: Context) {
                 runCatching {
                     indexFile.renameTo(File(storeDir, "sessions.index.bad." + System.currentTimeMillis() + ".json"))
                 }
-                val rebuilt = rebuildIndexFromMessages()
-                list.addAll(rebuilt)
-                if (rebuilt.isNotEmpty()) {
-                    runCatching { writeAtomic(indexFile, serializeIndex(rebuilt.map(::sessionIndexRow))) }
-                    main.post { notice = "会话索引损坏，已从本地会话文件重建 " + rebuilt.size + " 个会话。" }
+                val valid = ArrayList(list)
+                list.clear()
+                // 合并去重，且保留坏索引里还能读出的 pinned/revived/imported/cost（R8-P2-2）。
+                list.addAll(PersistencePolicy.mergeRebuilt(valid, rebuildIndexFromMessages()) { it.id })
+                if (list.isNotEmpty()) {
+                    runCatching { writeAtomic(indexFile, serializeIndex(list.map(::sessionIndexRow))) }
+                    main.post { notice = "会话索引损坏，已从本地会话文件重建 " + list.size + " 个会话。" }
                 } else {
                     main.post { notice = "会话索引损坏且无法从本地文件重建；可用「导入历史对话」恢复。" }
+                }
+            }
+            // 索引与消息文件对账：导入写盘后索引写失败、或索引丢行时，会话不能永久隐身
+            // （R8-P1-2 / P2-5）。只解析缺失的少数文件，不全扫 3800 条消息内容。
+            val indexed = list.mapTo(HashSet()) { it.id }
+            val fileIds = (msgDir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: emptyArray())
+                .map { it.name.substringBeforeLast('-') }
+                .filter { it.isNotBlank() }
+            val orphans = PersistencePolicy.orphanSessionIds(indexed, emptySet(), fileIds.toSet())
+            if (orphans.isNotEmpty()) {
+                var added = 0
+                for (id in orphans) {
+                    val s = sessionFromMessageFile(msgFile(id)) ?: continue
+                    list.add(s)
+                    added++
+                }
+                if (added > 0) {
+                    runCatching { writeAtomic(indexFile, serializeIndex(list.map(::sessionIndexRow))) }
                 }
             }
             main.post { applyLoaded(list) }
@@ -1964,8 +2007,23 @@ class AppState(private val context: Context) {
             }
             append("；超过 7 天未活跃的会话标为「已失效」，可逐条复活。")
         }
-        val indexJson = buildIndexJson()
-        io.execute { writeAtomic(indexFile, indexJson) }
+        // 索引 JSON 在 IO 线程构建并写入；失败必须告知用户，否则会话文件写了、索引没写，
+        // 重启后只能靠启动对账找回（R8-P2-5）。
+        val rows = sessions.map(::sessionIndexRow)
+        io.execute {
+            val ok = runCatching { writeAtomic(indexFile, serializeIndex(rows)) }.isSuccess
+            main.post {
+                if (ok) {
+                    indexDirty = false
+                    lastIndexWriteAt = System.currentTimeMillis()
+                } else {
+                    indexDirty = true
+                    indexEpoch++
+                    forceIndexNext = true
+                    notice = notice.orEmpty() + "（索引保存失败，重启后会自动从会话文件恢复）"
+                }
+            }
+        }
     }
 
     private fun contentSize(uri: Uri): Long = runCatching {

@@ -1128,22 +1128,35 @@ private fun StreamingTail(text: String, accent: Color) {
         PlainStreamText(text, accent)
         return
     }
-    val chunks = remember(text) { chunkText(text, TAIL_CHUNK) }
+    // 只缓存「已经写满的整块」：块边界不移动时字符串与列表都不重建，
+    // 每个 token 只重排最后一段增长中的尾部（R8-P2-3）。
+    val complete = text.length / TAIL_CHUNK
+    val stable = remember(complete) {
+        if (complete == 0) emptyList() else chunkText(text.substring(0, complete * TAIL_CHUNK), TAIL_CHUNK)
+    }
+    val tail = text.substring(complete * TAIL_CHUNK)
     Column(Modifier.fillMaxWidth()) {
-        chunks.forEachIndexed { index, chunk ->
-            if (index == chunks.lastIndex) {
-                PlainStreamText(chunk, accent)
-            } else {
-                Text(
-                    chunk,
-                    color = C.Ivory,
-                    fontSize = 16.sp,
-                    lineHeight = 26.sp,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+        if (tail.isEmpty() && stable.isNotEmpty()) {
+            // 恰好停在块边界：不留一行空尾，把最后一块也交给带光标的纯文本渲染。
+            stable.dropLast(1).forEach { block -> StableStreamText(block) }
+            PlainStreamText(stable.last(), accent)
+        } else {
+            stable.forEach { block -> StableStreamText(block) }
+            if (tail.isNotEmpty()) PlainStreamText(tail, accent)
         }
     }
+}
+
+/** 已提交尾部块：字符串在块边界移动前保持不变，Compose 可跳过重排。 */
+@Composable
+private fun StableStreamText(text: String) {
+    Text(
+        text,
+        color = C.Ivory,
+        fontSize = 16.sp,
+        lineHeight = 26.sp,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 /** 按字符数切块，但不切断代理对，避免流式时出现半个 emoji（P3-1）。 */

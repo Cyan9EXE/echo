@@ -72,10 +72,10 @@ fun EchoApp(state: AppState) {
     }
     SideEffect { Motion.animationsEnabled = motionOn }
     // 主题色是全局静态 token，若逐帧插值，每一帧都会让读取颜色的整棵树重组（P2-6）。
-    // 这里改为一次性换色，再用只在绘制阶段取值的 alpha 做 180ms 淡入：
-    // 切换只触发一次重组 + 一段纯绘制动画，运行中开关混动也会立即生效。
+    // 这里改为一次性换色，再用只在绘制阶段取值的 alpha 做 220ms 交叉淡入。
     val themeFade = remember { Animatable(1f) }
-    // 系统栏图标等主题淡入结束再切，避免与整屏淡入错位（P2-3）。
+    // 交叉淡入期间垫在内容层后面的旧底色：外层背景不能抢在内容之前硬切（R8-P2-4）。
+    var prevVoid by remember { mutableStateOf(C.Void) }
     var statusBarDark by remember { mutableStateOf(C.Void.luminance() > 0.42f) }
     var themeInitialized by remember { mutableStateOf(false) }
     LaunchedEffect(
@@ -83,17 +83,22 @@ fun EchoApp(state: AppState) {
     ) {
         val wantDay = if (C.isDay) 1f else 0f
         val wantEye = if (C.isDay && C.eyeMode != 0) 1f else 0f
-        // 先小幅压暗再换色、同帧提交，最后淡入；不压到全透明，避免切换时出现一帧空白（P2-3）。
         val animate = themeInitialized && motionOn
-        if (animate) themeFade.snapTo(0.72f)
+        // 旧底色必须在改 themeProgress 之前取；之后 C.Void 已经是新色。
+        prevVoid = C.Void
         C.themeProgress = wantDay
         C.eyeProgress = wantEye
+        val newDark = C.Void.luminance() > 0.42f
         if (animate) {
-            themeFade.animateTo(1f, tween(Motion.dur(220, motionOn), easing = Motion.CALM))
+            themeFade.snapTo(0f)
+            // 系统栏图标只有明暗两态：在淡入中点翻转，避免动画结束后再跳一次（R8-P2-4）。
+            themeFade.animateTo(0.5f, tween(Motion.dur(110, motionOn), easing = Motion.CALM))
+            statusBarDark = newDark
+            themeFade.animateTo(1f, tween(Motion.dur(110, motionOn), easing = Motion.CALM))
         } else {
+            statusBarDark = newDark
             themeFade.snapTo(1f)
         }
-        statusBarDark = C.Void.luminance() > 0.42f
         themeInitialized = true
     }
     // 自定义强调色不走预设色阶，直接取用户选的颜色。
@@ -160,13 +165,15 @@ fun EchoApp(state: AppState) {
             scrim = Color.Black,
         ),
     ) {
-        // 整屏一起淡入淡出：外层底色、抽屉、弹层与系统栏不再硬切（P2-5）。
+        // 整屏一起淡入淡出：旧底色垫在图层外，新底色和内容一起在图层内淡入，
+        // 背景因此也是渐变的而不是先硬切（R8-P2-4）。
         Box(
             Modifier
                 .fillMaxSize()
-                .background(C.Void)
+                .background(prevVoid)
                 .safeDrawingPadding()
-                .graphicsLayer { alpha = themeFade.value },
+                .graphicsLayer { alpha = themeFade.value }
+                .background(C.Void),
         ) {
             AnimatedContent(
                 targetState = state.current != null,
