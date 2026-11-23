@@ -102,7 +102,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 - **为什么要抽纯函数**：`ApiClient.stream` 原先把 SSE 循环、请求体拼装和 Android `Handler` 绑死，JVM 单测无法覆盖。现在 `app/src/main/java/app/echo/Api.kt` 顶层有两个 `internal` 纯函数：`buildChatBody(model, thinking, webSearch, systemPrompt, messages, maxTokens): JSONObject`（max_tokens 收敛、stream/thinking、`deepseek_web_search` 工具、空白 system 省略、assistant 历史带 signature 时回放 thinking+text 两块）；`pumpSse(reader, isCancelled, onEvent): Boolean`（逐行解析 event/data、空行触发 `Sse.parse`、记录 message_stop、EOF/取消返回 false）。`ApiClient.stream` 只保留 UI/线程回调，行为不变。
 - **ProtocolTest.kt 15 例**：maxTokens 上下限收敛、model/stream/thinking 开关、webSearch 有无工具、空白 system 省略、signature 历史回放、完整轮次事件顺序与 usage `full` 标志、截断缺 message_stop、取消只消费首个事件、error 帧文案、ping/comment 不产事件、`httpErrorMessage` 401/402/429/503/504 映射、400 detail 直出与内容审核文案、未知码 fallback。
-- **测试**：本节时点（1.0.3）为 91 例 0 失败：Billing 16 / Export 9 / Format 4 / Markdown 28 / Protocol 15 / Sse 19（此前 76 例）；1.0.5 REVIEW-LOOP 第 2、3 轮后为 99 例（新增 `TtsAudioTest` 8 例）。第 6、7 轮后为 112 例（新增 FollowTail 与 Markdown 流式扫描用例）；第 8 轮后为 118 例（新增 `SessionPersistenceTest` 6 例）；第 9 轮后为 121 例（新增加载门禁、恢复对账、重复 id 合并与代理对边界用例）。
+- **测试**：本节时点（1.0.3）为 91 例 0 失败：Billing 16 / Export 9 / Format 4 / Markdown 28 / Protocol 15 / Sse 19（此前 76 例）；1.0.5 REVIEW-LOOP 第 2、3 轮后为 99 例（新增 `TtsAudioTest` 8 例）。第 6、7 轮后为 112 例（新增 FollowTail 与 Markdown 流式扫描用例）；第 8 轮后为 118 例（新增 `SessionPersistenceTest` 6 例）；第 9 轮后为 121 例（新增加载门禁、恢复对账、重复 id 合并与代理对边界用例）；第 10 轮后 122 例（删除事务化与索引恢复）；第 11 轮后 124 例（墓碑合并与回滚纯函数 2 例）。
 - **本地 CI 演练**：`bash scripts/run_tests.sh --smoke` 全绿 = `compileDebugKotlin` + `testDebugUnitTest`（99 绿）+ `mock_sse_server.py --selftest` 15/15 + 冒烟（normal 有 message_stop、truncated 无、429 状态码正确）；脚本自己探测 python3/python。`.github/workflows/ci.yml` 同步存在，因暂不发布 GitHub 未实跑。
 - **真机回归**：1.0.3 安装后真 Key 发 ping →「Pong! 🏓 / What can I help you with today?」，底部「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错。
 
@@ -186,7 +186,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **P2-1 wrapper 可执行位**：`gradlew` 以 100755 提交，CI 增加 `chmod +x gradlew` 防御；干净 clone 可直接 `./gradlew`。
 - **P2-6 / P2-7 测试与文档**：新增纯 JVM `SessionPersistenceTest` 6 例（索引判定、脏标记代数、孤儿会话、坏索引合并），单测 112 → 118；文档按实际行为修正（`animateItem` 流式项跳过、尾部只缓存整块、索引结构变更立即写）。
 - **验证**：`compileDebugKotlin` 通过；JVM 单测 **118 例 0 失败**（Billing 16 / Export 9 / FollowTail 6 / Format 4 / Markdown 35 / Protocol 15 / Sse 19 / TtsAudio 8 / SessionPersistence 6）；release 从工作树重建为 1,460,365 B、SHA-256 `0b6ee8939181296dc6fd94cabf6ac472071865408dbc7fbfa24cf40b09280160`（mtime 2026-11-24 01:31）。真机仍断开，设备复验未执行。
-- **残留**：P2-6 仍缺 Compose UI 测试 / Macrobenchmark（无设备）；P2-7 / P3 的文档行号、节假日峰谷等留下版（Drawer 删除确认已在第 9 轮 P2-2 落地）；第 9 轮复审待发起。
+- **残留**：P2-6 仍缺 Compose UI 测试 / Macrobenchmark（无设备）；P2-7 / P3 的文档行号、节假日峰谷等留下版（Drawer 删除确认已在第 9 轮 P2-2 落地）；第 9 轮复审已发起（报告见下节）。
 
 ### REVIEW-LOOP 第 9 轮（外部审查 → 修复，2026-11-24）
 
@@ -201,7 +201,12 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **P2-6 / P2-7**：新增纯 JVM 用例覆盖加载门禁、恢复对账顺序、重复 id 合并、代理对边界，单测 118 → **121**；README / ARCHITECTURE / 本节 / tts.md / RELEASE 同步改成可验证表述。
 - **P3**：删除旧注释、主题注释改「中点翻转」、load 写索引同步 lastIndexWriteAt、导入索引行移 IO、对账按最近修改优先、mergeRebuilt 重复 valid id 改 putIfAbsent、删除确认；P3-6（IO 线程构造 Session 并写 Compose 状态）仍留待下版。
 - **验证**：compileDebugKotlin 通过；JVM 单测 **121 例 0 失败**（Billing 16 / Export 9 / FollowTail 6 / Format 4 / Markdown 36 / Protocol 15 / Sse 19 / TtsAudio 8 / SessionPersistence 8）；release 从工作树重建为 1,480,077 B、SHA-256 e3acef1f714b91296a412dc8f68069cf2f608ee6276121f86a57343b9de161d5（mtime 2026-11-24 01:55）。真机仍断开，设备复验未执行。
-- **残留**：P2-6 仍缺 Compose UI / Macrobenchmark 与集成测试；P2-7 设备观感项待实测；P3-6 留待下版；第 10 轮复审待发起。
+- **残留**：P2-6 仍缺 Compose UI / Macrobenchmark 与集成测试；P2-7 设备观感项待实测；P3-6 留待下版；第 10 轮复审已发起（报告见下节）。
+
+### REVIEW-LOOP 第 10 轮（外部审查 → 修复，2026-11-24）,,第 10 轮只读复审（`review/rounds/echo-1.0.5-round10-review.md`，245 行 / 25,397 B；对象文档 HEAD `66eca91`、代码 `716dfcd`）判定 P0=0 / P1=1 / P2=7 / P3=5 不通过。唯一 P1 是删除会话的墓碑 / 消息文件 / 索引不是原子提交（四个崩溃窗口）。修复提交 `0f410a5`（6 files +186/−80）：,,- P1-1：删除改为四步事务——墓碑先落盘 → 删消息文件 → 提交过滤后的索引成功后才撤墓碑；任一步失败保留墓碑并在下次启动重试；启动清理以「过滤后索引已写盘」为前提；加载时按消息文件缺失自愈旧幽灵行。,- P2：`readTombstones` 损坏备份 `.bad`、`saveTombstones` 返回 Boolean、`@Volatile tombstonesSnapshot`、`rebuildIndexFromMessages` 统一过滤墓碑、`serializeSession` 带全元数据迁移、`indexLoading` 加载态与欢迎页提示、删除时同步 `Reader.stopAll()`。,- 验证：122 例 0 失败；APK 1,480,077 B、SHA-256 `1cbc0e0d…`（mtime 2026-11-24 02:27）；真机断开，仅 JVM 验证。
+
+### REVIEW-LOOP 第 11 轮（外部审查 → 修复，2026-11-24）,,第 11 轮只读复审（`review/rounds/echo-1.0.5-round11-review.md`，165 行 / 19,159 B；对象 HEAD `0f410a5`）判定 P0=0 / P1=0 / P2=6 / P3=4 有条件通过；第 10 轮 P1 四窗口已按「墓碑先行 → 删文件 → 写过滤索引 → 撤墓碑」闭合。修复提交 `6c29156`（3 files +168/−93）：,,- P2-1 索引写结果分账：`writeIndexNow()` 记录 attempts / failures，空索引也显式写；任一失败置 `indexDirty` + `forceIndexNext`；仅全成功且 `mayClearIndexDirty(epochAtStart, indexEpoch)` 才清脏。,- P2-2 加载复位：`loadIndexAsync` 拆出 `loadIndexBody` 并加 try/catch，成功 / 异常 / 空列表都无条件 `indexLoading=false`。,- P2-3 / P2-5 墓碑并发与删除失败语义：delete 的墓碑读改写全走单线程 IO + 不可变快照 `saveTombstones(ids=snapshot)`；墓碑写失败整体放弃删除，删消息文件失败回滚墓碑并提示「会话未删除：消息文件删除失败，请稍后再试。」。,- P2-4 加载期删除：`applyLoaded` 用当前 `tombstonesSnapshot` 再过滤，本地保留的 current / stream 也跳过已删 id；`PersistencePolicy` 新增 `mergeTombstones` / `removeTombstone` + 2 例单测。,- 验证：debug + release 各 124 例 0 失败；APK 1,480,077 B、SHA-256 `d9c026b2…`（mtime 2026-11-24 02:54）；残留 P2-6（store 接口注入测试）与 P3-2/P3-3/P3-4 留待下版；真机断开。
+
 ### 性能（真机实测，0.9.2 / versionCode 13）
 
 - **上下文条轮询**：流式生成时每 500ms 刷新 token 估算。原实现每次都遍历整段会话（`historyMessages()` 过滤 + `sumOf`，长会话持续产生临时 List/String 垃圾）；现在发送时缓存历史字符数 `contextBaseChars`，轮询只叠加当前回复的 `text.length`（O(1)），`onDone/onError/stopGenerating` 再全量校准一次。`refreshContextTokens()` 移到 `streaming = true` 之后调用，缓存才会生效。
@@ -215,7 +220,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - Markdown/LaTeX 由自研 `Markdown.kt` 渲染，属手写子集：不支持表格、图片、嵌套列表；块级公式有一定布局开销。流式时最后未闭合段以纯文本尾行渲染，回答完成后整体 Markdown 排版。
 - 导入按会话 id 合并去重，只保留当前分支；附件与图片不会重传。
 - 全会话 ZIP 导出无进度条、不可取消（< 10 s，可接受）；单会话导出整份 JSON 解析，存在内存峰值。
-- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 121 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
+- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 124 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
 - ~~release 使用 debug 签名~~ → 1.0.0 起使用正式 release keystore（证书指纹见第 8 节）；无密钥时仍回退 debug，仅限本地内测。
 - ~~联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路~~ → 1.0.2 已打通：服务端执行搜索，客户端收到 `citations_delta` 并在回答末尾渲染「来源」（§4 真 Key 冒烟）。
 - 性能数据以真机（LQAVP23928C105TX，90Hz 档）为准；模拟器是软件渲染，其 gfxinfo jank 比例不作指标。
@@ -255,7 +260,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 **构建产物**
 
-- **1.0.5 / versionCode 6**（TTS 朗读重写：官方 24 kHz 流经 Up2 半带 FIR 升采样到 48 kHz 输出，track buffer 64 KB / prebuffer 32 KB，修复 1.0.4 的噪声与 1.0.5 首版 48k 播放的缓冲超时静音；横屏欢迎页紧凑布局、旋转不重建 Activity、输入草稿 rememberSaveable；COLOR-V3 五色主题与蓝白 1.6:1 命令提示符图标；REVIEW-LOOP 第 1–9 轮修复）：`app/build/outputs/apk/release/app-release.apk`，1,480,077 B，mtime 2026-11-24 01:55（第 9 轮修复后从工作树重建，含索引加载门禁与缺失重建、删除墓碑、恢复元数据、流式代理对边界、主题全屏交叉淡入；真机断开，设备复验证据仍来自旧包 `e7e59e10…` / `900ba8c8…`，流式与跟底路径只做 JVM 编译与单测验证）；SHA-256 `e3acef1f714b91296a412dc8f68069cf2f608ee6276121f86a57343b9de161d5`；emulator-5554 安装记录 versionCode=6 / versionName=1.0.5（旧包）；AudioFlinger 取证与 QEMU 抓音见 `4「TTS 48k 重采样与静音修复」。
+- **1.0.5 / versionCode 6**（TTS 朗读重写：官方 24 kHz 流经 Up2 半带 FIR 升采样到 48 kHz 输出，track buffer 64 KB / prebuffer 32 KB，修复 1.0.4 的噪声与 1.0.5 首版 48k 播放的缓冲超时静音；横屏欢迎页紧凑布局、旋转不重建 Activity、输入草稿 rememberSaveable；COLOR-V3 五色主题与蓝白 1.6:1 命令提示符图标；REVIEW-LOOP 第 1–11 轮修复）：`app/build/outputs/apk/release/app-release.apk`，1,480,077 B，mtime 2026-11-24 02:54（第 11 轮修复后从提交 6c29156 重建，含索引加载门禁与缺失重建、删除墓碑、恢复元数据、流式代理对边界、主题全屏交叉淡入；真机断开，设备复验证据仍来自旧包 `e7e59e10…` / `900ba8c8…`，流式与跟底路径只做 JVM 编译与单测验证）；SHA-256 `d9c026b2f424c5c777c47b8064d1919752da4047461cccc7f5aca739adf833f2`；emulator-5554 安装记录 versionCode=6 / versionName=1.0.5（旧包）；AudioFlinger 取证与 QEMU 抓音见 `4「TTS 48k 重采样与静音修复」。
 - **1.0.3 / versionCode 4**（协议回归 + 本地 CI 演练：把请求体拼装与 SSE 循环从 `ApiClient.stream` 抽成纯函数 `buildChatBody` / `pumpSse`，新增 `ProtocolTest.kt` 15 例；`scripts/run_tests.sh --smoke` 本地跑通编译 + 91 单测 + mock 自检 + normal/truncated/429 冒烟）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:40；SHA-256 `d2c6f62a89f839d6341ca84f196167a24d5fa1ef40e09d762e91d9940e67a42c`；emulator-5554 安装后 dumpsys 显示 versionCode=4 / versionName=1.0.3；重构后真机 ping 冒烟正常（回复「Pong! 🏓」，「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错）。
 - **1.0.2 / versionCode 3**（导入文案纠错：答疑中心与导入 FAQ 由「会覆盖本机全部会话」改为「按会话 ID 合并、已存在跳过、附件不导入、全程不上传」，与导入实现口径一致）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 09:29；SHA-256 `fbb19241fdfd9c8adf211d63e382d45193f3ea6b848264adc2721f9dd8e2f78b`；emulator-5554 安装后 dumpsys 显示 versionCode=3 / versionName=1.0.2（lastUpdateTime 2026-11-23 09:30:06）；导入气泡、导入 FAQ 与答疑中心两条新文案均真机核对。
 - **1.0.1 / versionCode 2**（导出打磨：`unsafeNameChars` 去半角逗号、单会话导出 notice 改为「已导出 Markdown 文件」）：`app/build/outputs/apk/release/app-release.apk`，1,439,005 B，mtime 2026-11-23 08:38:17；SHA-256 `b524753d18276cc416c5882cef461125d80138a3e174dd9254659c67b0ec0836`；apksigner 校验 signer 证书 SHA-256 与上节一致；emulator-5554 安装后 dumpsys 显示 versionCode=2 / versionName=1.0.1（lastUpdateTime 2026-11-23 08:38:32）。

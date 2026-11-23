@@ -40,7 +40,7 @@
 
 ## 技术
 
-纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。28 个 Kotlin 文件、约 11,935 行：
+纯原生，无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE 解析）。28 个 Kotlin 文件、约 12,093 行：
 
     app/src/main/java/app/echo/
       MainActivity / EchoApp     入口与导航
@@ -56,7 +56,7 @@
 - namespace = applicationId = app.echo；旧包名 app.xuxie 已废弃，不得再使用。
 - minSdk 26 / targetSdk 35。
 - 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 6 / 1.0.5）。
-- 测试：JVM 单元测试 **122 例 0 失败**，覆盖请求体拼装与 SSE 解析/协议回归（`buildChatBody` / `pumpSse`）、计费与切分、格式化、导出渲染与 Markdown 解析（含流式切段扫描推进）、48k 半带重采样与播放尾等待（`TtsAudioTest`）、贴底跟随判定与发送回底纯函数（`FollowTailTest` 6 例）、落盘策略（`SessionPersistenceTest` 9 例：索引必写、加载门禁、脏标记代数、恢复对账顺序、墓碑剔除、坏索引合并与重复 id、启动清理门禁）；本地 `bash scripts/run_tests.sh --smoke` 会跑编译 + 单测 + mock SSE 自检 + 冒烟，命令与约定见 CONTRIBUTING.md；GitHub Actions 见 .github/workflows/ci.yml。
+- 测试：JVM 单元测试 **124 例 0 失败**，覆盖请求体拼装与 SSE 解析/协议回归（`buildChatBody` / `pumpSse`）、计费与切分、格式化、导出渲染与 Markdown 解析（含流式切段扫描推进）、48k 半带重采样与播放尾等待（`TtsAudioTest`）、贴底跟随判定与发送回底纯函数（`FollowTailTest` 6 例）、落盘策略（`SessionPersistenceTest` 11 例：索引必写、加载门禁、脏标记代数、恢复对账顺序、墓碑剔除、坏索引合并与重复 id、启动清理门禁、墓碑合并与回滚）；本地 `bash scripts/run_tests.sh --smoke` 会跑编译 + 单测 + mock SSE 自检 + 冒烟，命令与约定见 CONTRIBUTING.md；GitHub Actions 见 .github/workflows/ci.yml。
 - 性能：流式正文按帧合并发布（Choreographer 帧回调，正常 / 性能模式分别 16 / 33ms 上限），对话页只在贴底且用户未上滑时跟随：新消息插入先按 `tailRescueIndex` 把尾项滚入视口，随后逐帧 `scrollBy`；Markdown 流式只在代码围栏 / 块级公式之外的空行或围栏闭合处提交稳定段并增量解析，末尾未闭合部分按全文纯文本渲染、不截断不隐藏（超过 2400 字符按 1200 字符分块，全文分块不切断代理对，流式稳定前缀边界落在高代理项之后会回退一格），稳定前缀按字符串缓存，未提交尾部只缓存已写满的 1200 字符块、每个 token 只重排最后一段增长尾部，完成后整体排版。会话列表的分区 / 搜索 / 排序结果按状态缓存；索引与快照的组装（`snapshotSession`）在主线程、序列化与写盘在 IO 线程，会话正文按需懒加载（≤48KB 快照在主线程同步解析；更大快照在 IO 线程完成 JSON→消息列表与摘要解析，主线程只发布结果，列表先用占位项渲染；正文未 ready 时发送 / 复活只提示稍候）。
 - AOT（profile 引导）：release 内置官方 androidx.baselineprofile 插件生成的 **Baseline Profile**，并依赖 androidx.profileinstaller:1.4.1。Baseline Profile 只是“热点方法清单”，随同一个 APK 分发到所有设备；真正的机器码由每台设备安装/空闲时由 ART 的 dex2oat 以 speed-profile 本地生成，**不随安装包分发机器码**。
 
