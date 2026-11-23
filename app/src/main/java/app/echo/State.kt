@@ -115,6 +115,13 @@ class AppState(private val context: Context) {
         private set
     var ttsSkipConfirm by mutableStateOf(prefs.getBoolean("ttsSkipConfirm", false))
         private set
+
+    // 输入框草稿：跨会话切换与进程重建都能恢复（离开输入区时落盘一次，避免逐键写盘）。
+    var draft by mutableStateOf(prefs.getString("draft", "").orEmpty())
+
+    fun persistDraft() {
+        prefs.edit().putString("draft", draft).apply()
+    }
     var asrSkipConfirm by mutableStateOf(prefs.getBoolean("asrSkipConfirm", false))
         private set
     var notice by mutableStateOf<String?>(null)
@@ -128,8 +135,13 @@ class AppState(private val context: Context) {
         private set
     private var importCancelled = false
     var revision by mutableStateOf(0)
-    var currentId by mutableStateOf<String?>(null)
+    var currentId by mutableStateOf<String?>(prefs.getString("currentId", null))
         private set
+
+    private fun setCurrentSession(id: String?) {
+        currentId = id
+        prefs.edit().putString("currentId", id).apply()
+    }
 
     private var streamSeq = 0
     private var streamSessionId: String? = null
@@ -387,7 +399,7 @@ class AppState(private val context: Context) {
         s.messages.markEmpty()
         revision++
         sessions.add(0, s)
-        currentId = s.id
+        setCurrentSession(s.id)
         markDirty(s.id)
         refreshContextTokens()
         save()
@@ -397,7 +409,7 @@ class AppState(private val context: Context) {
         typing = false
         showDrawer = false
         ensureReadyForUi(session)
-        currentId = session.id
+        setCurrentSession(session.id)
         touchReady(session)
         refreshContextTokens()
         revision++
@@ -405,14 +417,14 @@ class AppState(private val context: Context) {
 
     fun backHome() {
         typing = false
-        currentId = null
+        setCurrentSession(null)
         refreshContextTokens()
     }
 
     fun delete(session: Session) {
         sessions.remove(session)
         invalidateCurrent()
-        if (currentId == session.id) currentId = null
+        if (currentId == session.id) setCurrentSession(null)
         dirtyIds.remove(session.id)
         val f = msgFile(session.id)
         io.execute { runCatching { f.delete() } }
@@ -447,7 +459,7 @@ class AppState(private val context: Context) {
             session = Session(title = body.take(24))
             session.messages.markEmpty()
             sessions.add(0, session)
-            currentId = session.id
+            setCurrentSession(session.id)
         }
         if (session.messages.isEmpty()) session.title = body.take(24)
         session.messages.add(Msg(role = "user", text = body))

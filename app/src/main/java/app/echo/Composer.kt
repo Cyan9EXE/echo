@@ -54,7 +54,7 @@ import androidx.compose.runtime.setValue
 @Composable
 internal fun Composer(state: AppState, accent: Color) {
     val context = LocalContext.current
-    var text by rememberSaveable { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf(state.draft) }
     var focused by remember { mutableStateOf(false) }
     var askAsr by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
@@ -64,6 +64,7 @@ internal fun Composer(state: AppState, accent: Color) {
     fun fillFromSpeech(spoken: String) {
         if (spoken.isBlank()) return
         text = if (text.isBlank()) spoken else text.trimEnd() + "\n" + spoken
+        state.draft = text
         state.typing = true
         focus.requestFocus()
     }
@@ -73,6 +74,8 @@ internal fun Composer(state: AppState, accent: Color) {
             Toast.makeText(context, "填入 API Key 后才能使用官方语音识别", Toast.LENGTH_SHORT).show()
             state.openSettings()
         } else {
+            // 朗读与录音共用音频焦点：开始录音前先停止正在进行的朗读。
+            Reader.stopAll()
             Recorder.start(
                 context = context,
                 apiKey = state.apiKey,
@@ -108,6 +111,7 @@ internal fun Composer(state: AppState, accent: Color) {
         onDispose {
             Recorder.cancel()
             Reader.stopAll()
+            state.persistDraft()
         }
     }
 
@@ -140,6 +144,7 @@ internal fun Composer(state: AppState, accent: Color) {
                             value = text,
                             onValueChange = {
                                 text = it
+                                state.draft = it
                                 state.typing = it.isNotBlank()
                             },
                             modifier = Modifier
@@ -178,6 +183,7 @@ internal fun Composer(state: AppState, accent: Color) {
                                     state.typing = false
                                     state.send(value)
                                     text = ""
+                                    state.draft = ""
                                 }
                             },
                             modifier = Modifier.size(44.dp),

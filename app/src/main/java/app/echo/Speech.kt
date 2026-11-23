@@ -27,12 +27,41 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import android.util.Log
+import java.util.concurrent.atomic.AtomicInteger
 
+/**
+ * 朗读：从 /v1/tools/tts 取 24kHz PCM16，半带 FIR 升采样到 48kHz 交给 AudioTrack 播放。
+ *
+ * 线程与所有权：
+ * - UI 线程只改 [paused]/[speaking] 等状态与 [uiSink]（暂停、继续、调音量、解除阻塞写）；
+ *   创建/释放 AudioTrack 与阻塞写全部发生在朗读线程内，AudioTrack 归该线程所有并在 finally 释放，
+ *   旧任务不可能释放新任务的 track，也不会在新任务开始后仍申请音频焦点。
+ * - 每次 start/stop 递增 [generation]（AtomicInteger），陈旧线程的任何副作用都先校验 generation。
+ */
 object Reader {
     private val main = Handler(Looper.getMainLooper())
-    private var generation = 0
+    private val generation = AtomicInteger(0)
+    private val stateLock = Any()
     private var worker: Thread? = null
-    @Volatile private var pausedFlag = false
+
+    /** UI 线程可安全访问的音频出口：只用于暂停/继续/调音量/解除阻塞写。 */
+    @Volatile
+    private var uiSink: TtsSink? = null
+
+    @Volatile
+    private var pausedFlag = false
+
+    @Volatile
+    private var connection: HttpURLConnection? = null
+
+    private var audioManager: AudioManager? = null
+    private var appContext: Context? = null
+    private var focusRequest: AudioFocusRequest? = null
+    private var focusGeneration = -1
+
+    private var pausedByUser = false
+    private var pausedByFocus = false
 
     var activeId by mutableStateOf("")
         private set
@@ -43,56 +72,81 @@ object Reader {
     var paused by mutableStateOf(false)
         private set
 
-    @Volatile private var track: AudioTrack? = null
-    @Volatile private var connection: HttpURLConnection? = null
-    private var audioManager: AudioManager? = null
-    @Volatile private var focusRequest: AudioFocusRequest? = null
-    @Volatile private var lastUnderruns = 0
-    private var appContext: Context? = null
-
     private const val OUT_RATE = 48_000
     private const val PREBUFFER_BYTES = 32_000
     private const val TRACK_BUFFER_BYTES = 64 * 1024
     private const val RESAMPLED_BYTES = 32 * 1024
+    private const val DUCK_VOLUME = 0.2f
+
+    /** 用户停止或重新开始导致的提前退出，不弹失败提示。 */
+    private class StoppedException : Exception()
 
     fun start(context: Context, text: String, id: String, voice: String, apiKey: String) {
         if (text.isBlank()) return
+        if (Recorder.recording || Recorder.transcribing) Recorder.cancel()
         stopAll()
-        val my = generation
+        val my = generation.get()
         val app = context.applicationContext
         appContext = app
+        audioManager = app.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         activeId = id
         loading = true
         speaking = false
         paused = false
+        pausedByUser = false
+        pausedByFocus = false
         pausedFlag = false
-        worker = Thread {
-            playChunks(app, text, voice, apiKey, my)
-        }.apply { priority = Thread.NORM_PRIORITY - 1; start() }
+        val thread = Thread { playChunks(text, voice, apiKey, my) }
+        thread.priority = Thread.NORM_PRIORITY - 1
+        worker = thread
+        thread.start()
     }
 
+    /** 暂停；准备阶段（还没出声）也允许暂停，避免按钮变成死控件。 */
     fun pause() {
-        if (!speaking) return
+        if (!speaking && !loading) return
+        pausedByUser = true
         pausedFlag = true
         paused = true
         speaking = false
-        runCatching { track?.pause() }
+        runCatching { uiSink?.pause() }
     }
 
     fun resume() {
         if (!paused) return
+        if (pausedByFocus && !requestFocus(generation.get())) {
+            stopAllWithToast("无法恢复音频焦点，可能有其他应用正在播放")
+            return
+        }
+        pausedByUser = false
+        pausedByFocus = false
         pausedFlag = false
         paused = false
         speaking = true
-        runCatching { track?.play() }
+        runCatching {
+            uiSink?.setVolume(1f)
+            uiSink?.play()
+        }
     }
 
+    /** 停止朗读并清空状态；AudioTrack 由朗读线程在 finally 里释放。 */
     fun stopAll() {
-        generation++
+        val stale = generation.incrementAndGet()
         pausedFlag = false
-        connection?.disconnect()
+        pausedByUser = false
+        pausedByFocus = false
+        val conn = connection
         connection = null
-        releaseAudio()
+        runCatching { conn?.disconnect() }
+        val sink = synchronized(stateLock) {
+            val s = uiSink
+            uiSink = null
+            s
+        }
+        // 解除可能阻塞在 write() 上的旧线程：play 后写入会立即返回，旧线程随即发现 generation 变化
+        runCatching { sink?.setVolume(1f) }
+        runCatching { sink?.play() }
+        abandonFocus(stale)
         worker = null
         activeId = ""
         loading = false
@@ -100,324 +154,362 @@ object Reader {
         paused = false
     }
 
-    private fun speechAttrs(): AudioAttributes = AudioAttributes.Builder()
-        .setUsage(AudioAttributes.USAGE_MEDIA)
-        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-        .build()
-
-    private fun takeFocus(my: Int) {
-        val am = runCatching {
-            appContext?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-        }.getOrNull() ?: return
-        audioManager = am
-        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(speechAttrs())
-            .setOnAudioFocusChangeListener { change ->
-                when (change) {
-                    AudioManager.AUDIOFOCUS_LOSS,
-                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                        pausedFlag = true
-                        runCatching { track?.pause() }
-                        main.post {
-                            if (my == generation) {
-                                paused = true
-                                speaking = false
-                            }
-                        }
-                    }
-                    AudioManager.AUDIOFOCUS_GAIN -> {
-                        if (my == generation) {
-                            pausedFlag = false
-                            runCatching { track?.play() }
-                            main.post {
-                                if (my == generation) {
-                                    paused = false
-                                    speaking = true
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .build()
-        val granted = runCatching { am.requestAudioFocus(request) }
-            .getOrDefault(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
-        if (granted == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) focusRequest = request
+    private fun stopAllWithToast(message: String) {
+        val app = appContext ?: return
+        stopAll()
+        Toast.makeText(app, message, Toast.LENGTH_SHORT).show()
     }
 
-    private fun releaseAudio() {
-        val am = audioManager
-        val request = focusRequest
-        focusRequest = null
-        if (am != null && request != null) {
-            runCatching { am.abandonAudioFocusRequest(request) }
-        }
-        runCatching { track?.pause() }
-        runCatching { track?.flush() }
-        runCatching { track?.release() }
-        track = null
-    }
-
-    private fun playChunks(app: Context, text: String, voice: String, apiKey: String, my: Int) {
+    private fun playChunks(text: String, voice: String, apiKey: String, my: Int) {
         val chunks = Billing.splitForTts(text)
         if (chunks.isEmpty()) {
             finish(my, "没有可朗读的文本")
             return
         }
-        val minBytes = AudioTrack.getMinBufferSize(
-            OUT_RATE,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-        ).let { if (it <= 0) 16 * 1024 else it }
-        val audio = try {
-            AudioTrack.Builder()
-                .setAudioAttributes(speechAttrs())
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setSampleRate(OUT_RATE)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .build(),
-                )
-                .setBufferSizeInBytes(max(minBytes * 2, TRACK_BUFFER_BYTES))
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
-        } catch (e: Exception) {
-            finish(my, "无法创建音频输出：" + (e.message ?: "未知错误"))
-            return
-        }
-        track = audio
-        takeFocus(my)
+        val minBytes = runCatching {
+            AudioTrack.getMinBufferSize(
+                OUT_RATE,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+        }.getOrDefault(0).let { if (it <= 0) 16 * 1024 else it }
 
-        val resampler = Up2()
+        var audio: TtsSink? = null
+        var started = false
+        var written = 0L
+        var timedOut = false
+        val resampler = HalfBandInterpolator()
         val shorts = ShortArray(8 * 1024)
         val outShorts = ShortArray(16 * 1024)
         val outBytes = ByteArray(RESAMPLED_BYTES)
-        val readBuffer = ByteArray(8 * 1024)
-        val prebuffer = ByteArrayOutputStream()
-        var pendingLow = -1
-        var bytesWritten = 0L
-        var started = false
+        var shortCount = 0
+        var carry = -1
 
-        fun push(bytes: ByteArray, len: Int) {
-            if (len <= 0) return
+        val prebuffer = ByteArrayOutputStream()
+
+        fun emit(outCount: Int) {
+            if (outCount <= 0) return
+            val sink = audio ?: return
+            val len = encode(outShorts, outCount, outBytes)
             if (!started) {
-                prebuffer.write(bytes, 0, len)
-                if (prebuffer.size() >= PREBUFFER_BYTES) {
-                    val batch = prebuffer.toByteArray()
-                    prebuffer.reset()
-                    writeFully(audio, batch, batch.size)
-                    bytesWritten += batch.size
-                    audio.play()
-                    started = true
-                    main.post {
-                        if (my == generation) {
-                            loading = false
-                            speaking = true
-                        }
+                prebuffer.write(outBytes, 0, len)
+                if (prebuffer.size() < PREBUFFER_BYTES) return
+                val batch = prebuffer.toByteArray()
+                prebuffer.reset()
+                if (!writeFully(sink, batch, batch.size, my)) failWrite(my)
+                written += batch.size
+                runCatching { sink.play() }
+                started = true
+                main.post {
+                    if (my == generation.get()) {
+                        loading = false
+                        speaking = true
                     }
                 }
             } else {
-                writeFully(audio, bytes, len)
-                bytesWritten += len
+                if (!writeFully(sink, outBytes, len, my)) failWrite(my)
+                written += len
             }
         }
 
         try {
+            val track = AudioTrack.Builder()
+                .setAudioAttributes(speechAttrs())
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(OUT_RATE)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setBufferSizeInBytes(max(minBytes * 2, TRACK_BUFFER_BYTES))
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+            checkAlive(my)
+            val sink = AudioTrackSink(track)
+            audio = sink
+            synchronized(stateLock) {
+                if (my != generation.get()) throw StoppedException()
+                uiSink = sink
+            }
+            if (!requestFocus(my)) {
+                finish(my, "无法获取音频焦点，可能有其他应用正在播放")
+                return
+            }
+
             for (chunk in chunks) {
-                if (my != generation) return
-                while (pausedFlag && my == generation) SystemClock.sleep(40)
-                if (my != generation) return
-                val conn = URL(BuildConfig.API_ORIGIN + "/v1/tools/tts").openConnection() as HttpURLConnection
-                connection = conn
-                conn.requestMethod = "POST"
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 60_000
-                conn.doOutput = true
-                conn.setRequestProperty("Authorization", "Bearer " + apiKey)
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.setRequestProperty("Accept", "audio/pcm, application/octet-stream")
-                val body = JSONObject().apply {
-                    put("text", chunk)
-                    put("voice_id", voice)
-                    put("format", "pcm")
-                    put("filter_markdown", true)
-                }.toString()
-                conn.outputStream.use { out -> out.write(body.toByteArray(Charsets.UTF_8)) }
-                val code = conn.responseCode
-                if (code !in 200..299) {
-                    val raw = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                    throw IllegalStateException(httpErrorMessage(code, raw, "朗读请求失败（HTTP " + code + "）"))
-                }
-                val billed = Billing.ttsBilledChars(chunk)
-                UsageLedger.recordTts(billed, Billing.ttsCost(billed), "朗读")
-                BufferedInputStream(conn.inputStream).use { input ->
-                    while (true) {
-                        val n = input.read(readBuffer)
-                        if (n < 0) break
-                        if (n == 0) continue
-                        if (my != generation) return
-                        while (pausedFlag && my == generation) SystemClock.sleep(40)
-                        if (my != generation) return
-                        var i = 0
-                        var count = 0
-                        if (pendingLow >= 0) {
-                            val lo = pendingLow
-                            val hi = readBuffer[0].toInt() and 0xFF
-                            shorts[count++] = ((hi shl 8) or lo).toShort()
-                            pendingLow = -1
-                            i = 1
+                checkAlive(my)
+                waitIfPaused(my)
+                streamChunk(chunk, voice, apiKey, my) { buffer, n ->
+                    var i = 0
+                    while (i < n) {
+                        val b = buffer[i].toInt() and 0xFF
+                        if (carry < 0) {
+                            carry = b
+                        } else {
+                            shorts[shortCount++] = ((b shl 8) or carry).toShort()
+                            carry = -1
+                            if (shortCount == shorts.size) {
+                                emit(resampler.process(shorts, shortCount, outShorts))
+                                shortCount = 0
+                            }
                         }
-                        val remain = n - i
-                        val pairs = remain / 2
-                        var q = 0
-                        while (q < pairs) {
-                            val lo = readBuffer[i + q * 2].toInt() and 0xFF
-                            val hi = readBuffer[i + q * 2 + 1].toInt() and 0xFF
-                            shorts[count++] = ((hi shl 8) or lo).toShort()
-                            q++
-                        }
-                        if (remain and 1 == 1) pendingLow = readBuffer[i + remain - 1].toInt() and 0xFF
-                        val produced = resampler.process(shorts, count, outShorts)
-                        var outLen = 0
-                        var k = 0
-                        while (k < produced) {
-                            val v = outShorts[k].toInt()
-                            outBytes[outLen++] = (v and 0xFF).toByte()
-                            outBytes[outLen++] = ((v shr 8) and 0xFF).toByte()
-                            k++
-                        }
-                        push(outBytes, outLen)
+                        i++
                     }
                 }
-                runCatching { conn.disconnect() }
-                connection = null
-                pendingLow = -1
+                carry = -1
+                if (shortCount > 0) {
+                    emit(resampler.process(shorts, shortCount, outShorts))
+                    shortCount = 0
+                }
             }
+
             if (!started && prebuffer.size() > 0) {
+                val sink: TtsSink? = audio
                 val batch = prebuffer.toByteArray()
                 prebuffer.reset()
-                writeFully(audio, batch, batch.size)
-                bytesWritten += batch.size
-                audio.play()
+                if (sink != null && !writeFully(sink, batch, batch.size, my)) failWrite(my)
+                written += batch.size
+                runCatching { sink?.play() }
                 started = true
                 main.post {
-                    if (my == generation) {
+                    if (my == generation.get()) {
                         loading = false
                         speaking = true
                     }
                 }
             }
+
             if (started) {
-                val expectedMs = bytesWritten / 2 * 1000 / OUT_RATE
-                val deadline = SystemClock.uptimeMillis() + expectedMs + 2_000
-                while (my == generation) {
-                    val head = audio.playbackHeadPosition.toLong()
-                    if (!pausedFlag && head * 2 >= bytesWritten) break
-                    if (SystemClock.uptimeMillis() > deadline) break
-                    SystemClock.sleep(30)
+                checkAlive(my)
+                val sink: TtsSink? = audio
+                if (sink != null) {
+                    val waiter = TtsTailWaiter(written / 2L * 1000L / OUT_RATE)
+                    while (my == generation.get()) {
+                        when (waiter.step(sink.playbackHeadBytes(), written, pausedFlag)) {
+                            TtsTailWaiter.Result.COMPLETED -> break
+                            TtsTailWaiter.Result.TIMED_OUT -> {
+                                timedOut = true
+                                break
+                            }
+                            TtsTailWaiter.Result.WAITING -> Thread.sleep(30)
+                        }
+                    }
+                    checkAlive(my)
+                    if (BuildConfig.DEBUG) {
+                        Log.i(
+                            "EchoTts",
+                            "written=" + written + " underruns=" + sink.underrunCount() +
+                                " paused=" + pausedFlag
+                        )
+                    }
                 }
-                lastUnderruns = runCatching { audio.underrunCount }.getOrDefault(0)
             }
-            if (my == generation) {
-                releaseAudio()
-                val done = if (started) {
-                    "朗读完成 · 计费约 " + Billing.estimate(Billing.ttsCost(Billing.ttsBilledChars(text)))
-                } else {
-                    "没有可播放的音频"
-                }
-                finish(my, done)
+
+            when {
+                !started -> finish(my, "没有可播放的音频")
+                timedOut -> finish(my, "朗读中断：音频输出超时")
+                else -> finish(
+                    my,
+                    "朗读完成 · 计费约 " + Billing.estimate(
+                        Billing.ttsCost(Billing.ttsBilledChars(text))
+                    )
+                )
             }
+        } catch (stopped: StoppedException) {
+            // 用户停止或重新开始：静默收尾
         } catch (e: Exception) {
-            if (my == generation) {
-                releaseAudio()
-                finish(my, "朗读失败：" + (e.message ?: "网络错误"))
+            if (my == generation.get()) finish(my, "朗读失败：" + (e.message ?: "网络异常"))
+        } finally {
+            releaseSink(audio, my)
+        }
+    }
+
+    private fun streamChunk(
+        chunk: String,
+        voice: String,
+        apiKey: String,
+        my: Int,
+        onBytes: (ByteArray, Int) -> Unit,
+    ) {
+        val readBuffer = ByteArray(8 * 1024)
+        val conn = URL(BuildConfig.API_ORIGIN + "/v1/tools/tts").openConnection() as HttpURLConnection
+        connection = conn
+        try {
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 60_000
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Authorization", "Bearer " + apiKey)
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Accept", "audio/pcm, application/octet-stream")
+            val body = JSONObject().apply {
+                put("text", chunk)
+                put("voice_id", voice)
+                put("format", "pcm")
+                put("filter_markdown", true)
+            }.toString()
+            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                val raw = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                throw IllegalStateException(ttsErrorMessage(code, raw))
+            }
+            val billed = Billing.ttsBilledChars(chunk)
+            UsageLedger.recordTts(billed, Billing.ttsCost(billed), "朗读")
+            val input = BufferedInputStream(conn.inputStream)
+            while (true) {
+                val n = input.read(readBuffer)
+                if (n < 0) break
+                if (n == 0) continue
+                checkAlive(my)
+                waitIfPaused(my)
+                onBytes(readBuffer, n)
+            }
+        } finally {
+            runCatching { conn.disconnect() }
+            if (connection === conn) connection = null
+        }
+    }
+
+    private fun waitIfPaused(my: Int) {
+        while (pausedFlag) {
+            checkAlive(my)
+            Thread.sleep(40)
+        }
+    }
+
+    private fun checkAlive(my: Int) {
+        if (my != generation.get()) throw StoppedException()
+    }
+
+    private fun failWrite(my: Int) {
+        checkAlive(my)
+        throw IllegalStateException("音频写入失败，朗读已停止")
+    }
+
+    /** 阻塞写入；generation 变化或写入失败返回 false，由调用方区分停止与真实错误。 */
+    private fun writeFully(sink: TtsSink, data: ByteArray, size: Int, my: Int): Boolean {
+        var off = 0
+        while (off < size) {
+            if (my != generation.get()) return false
+            val n = sink.write(data, off, size - off)
+            if (n <= 0) return false
+            off += n
+        }
+        return true
+    }
+
+    private fun encode(samples: ShortArray, count: Int, out: ByteArray): Int {
+        var p = 0
+        for (i in 0 until count) {
+            val v = samples[i].toInt()
+            out[p++] = (v and 0xFF).toByte()
+            out[p++] = ((v shr 8) and 0xFF).toByte()
+        }
+        return p
+    }
+
+    private fun releaseSink(sink: TtsSink?, my: Int) {
+        if (sink != null) {
+            synchronized(stateLock) {
+                if (uiSink === sink) uiSink = null
+            }
+            runCatching { sink.pause() }
+            runCatching { sink.flush() }
+            runCatching { sink.release() }
+        }
+        abandonFocus(my)
+    }
+
+    private fun requestFocus(my: Int): Boolean {
+        val am = audioManager ?: return false
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(speechAttrs())
+            .setWillPauseWhenDucked(false)
+            .setOnAudioFocusChangeListener { change -> onFocusChange(my, change) }
+            .build()
+        val granted = am.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (!granted) return false
+        synchronized(stateLock) {
+            focusRequest = request
+            focusGeneration = my
+        }
+        return true
+    }
+
+    private fun abandonFocus(my: Int) {
+        val am = audioManager ?: return
+        val request: AudioFocusRequest?
+        synchronized(stateLock) {
+            if (focusGeneration != my) return
+            request = focusRequest
+            focusRequest = null
+            focusGeneration = -1
+        }
+        if (request != null) runCatching { am.abandonAudioFocusRequest(request) }
+    }
+
+    private fun onFocusChange(my: Int, change: Int) {
+        if (my != generation.get()) return
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                pausedFlag = true
+                runCatching { uiSink?.pause() }
+                main.post {
+                    if (my == generation.get()) {
+                        stopAllWithToast("朗读已停止：其他应用占用了音频")
+                    }
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                pausedByFocus = true
+                pausedFlag = true
+                paused = true
+                speaking = false
+                runCatching { uiSink?.pause() }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                runCatching { uiSink?.setVolume(DUCK_VOLUME) }
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                runCatching { uiSink?.setVolume(1f) }
+                if (pausedByFocus && !pausedByUser) {
+                    pausedByFocus = false
+                    pausedFlag = false
+                    paused = false
+                    speaking = true
+                    runCatching { uiSink?.play() }
+                }
             }
         }
     }
 
-    private fun writeFully(audio: AudioTrack, data: ByteArray, size: Int) {
-        var off = 0
-        while (off < size) {
-            val n = audio.write(data, off, size - off)
-            if (n <= 0) return
-            off += n
-        }
+    private fun speechAttrs(): AudioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_MEDIA)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
+
+    private fun ttsErrorMessage(code: Int, raw: String): String = when (code) {
+        413 -> "这段文字超出官方单次朗读上限，请分段后重试"
+        else -> httpErrorMessage(code, raw, "朗读请求失败（HTTP " + code + "）")
     }
 
     private fun finish(my: Int, message: String) {
-        releaseAudio()
-        connection?.disconnect()
+        val app = appContext ?: return
+        val conn = connection
         connection = null
+        runCatching { conn?.disconnect() }
         main.post {
-            if (my != generation) return@post
+            if (my != generation.get()) return@post
             activeId = ""
             loading = false
             speaking = false
             paused = false
             pausedFlag = false
-            Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private class Up2(private val taps: Int = 24) {
-        private val a = FloatArray(taps)
-        private val b = FloatArray(taps)
-        private val hist = FloatArray(taps)
-
-        init {
-            val len = 2 * taps
-            val mid = (len - 1) / 2.0
-            val h = DoubleArray(len)
-            var sum = 0.0
-            var j = 0
-            while (j < len) {
-                val t = j - mid
-                val sinc = if (t == 0.0) 1.0 else sin(PI * t / 2.0) / (PI * t / 2.0)
-                val w = 0.42 - 0.5 * cos(2.0 * PI * j / (len - 1)) + 0.08 * cos(4.0 * PI * j / (len - 1))
-                h[j] = 0.5 * sinc * w
-                sum += h[j]
-                j++
-            }
-            val gain = 2.0 / sum
-            var i = 0
-            while (i < taps) {
-                a[i] = (h[2 * i] * gain).toFloat()
-                b[i] = (h[2 * i + 1] * gain).toFloat()
-                i++
-            }
-        }
-
-        fun process(input: ShortArray, count: Int, out: ShortArray): Int {
-            var p = 0
-            var n = 0
-            while (n < count) {
-                var idx = taps - 1
-                while (idx > 0) {
-                    hist[idx] = hist[idx - 1]
-                    idx--
-                }
-                hist[0] = input[n] / 32768f
-                var y0 = 0f
-                var y1 = 0f
-                var i = 0
-                while (i < taps) {
-                    val x = hist[i]
-                    y0 += a[i] * x
-                    y1 += b[i] * x
-                    i++
-                }
-                out[p++] = clamp(y0)
-                out[p++] = clamp(y1)
-                n++
-            }
-            return p
-        }
-
-        private fun clamp(v: Float): Short {
-            val c = if (v > 1f) 1f else if (v < -1f) -1f else v
-            return (c * 32767f).roundToInt().toShort()
+            pausedByUser = false
+            pausedByFocus = false
+            Toast.makeText(app, message, Toast.LENGTH_SHORT).show()
         }
     }
 }

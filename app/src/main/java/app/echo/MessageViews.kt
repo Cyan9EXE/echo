@@ -157,6 +157,9 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
                     askTts = askTts,
                     onAskTts = { askTts = it },
                 )
+                if (readingThis) {
+                    ActionChip("停止") { Reader.stopAll() }
+                }
                 ActionChip("重试") {
                     if (state.streaming) {
                         Toast.makeText(context, "正在生成，请稍后再试", Toast.LENGTH_SHORT).show()
@@ -195,7 +198,9 @@ internal fun ReadControl(
     onAskTts: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
-    val billed = if (live) 0 else Billing.ttsBilledChars(m.text)
+    val billed = remember(m.text, live) {
+        if (live) 0 else Billing.ttsBilledChars(m.text)
+    }
     val readChip = if (readingThis || live || billed <= 0 || !state.showBillingHints) readLabel
         else readLabel + " " + Billing.estimate(Billing.ttsCost(billed))
     val readMax = Billing.quote(Billing.ttsCost(billed))

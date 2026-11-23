@@ -2,6 +2,7 @@ package app.echo
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
+import android.content.res.Configuration
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -56,17 +60,21 @@ internal fun Welcome(
             ) {
                 // 横屏只有 ~120dp 内容高度：隐藏图标、压缩标题，并把三个入口提到续聊卡前面，
                 // 保证「打开旧会话 / 导入 / 设置」不必滚动就能点到；竖屏保持原样（图标、28sp、卡片在上）。
-                val compact = roomy < 520.dp
+                // 用窗口配置判断横屏，而不是 maxHeight：输入法弹起会把 maxHeight 压到 ~336dp，
+                // 那样聚焦输入框的瞬间会误判为"横屏"，图标与标题突然跳变。
+                val configuration = LocalConfiguration.current
+                val compact = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE ||
+                    configuration.screenHeightDp < 520
                 val links: @Composable () -> Unit = {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.rise(8.dp) { phase(.42f, .58f) },
                     ) {
-                        Text("打开旧会话", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { state.showDrawer = true })
-                        Text("·", color = C.Muted, fontSize = 13.sp)
-                        Text("导入历史对话", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { onImport() })
-                        Text("·", color = C.Muted, fontSize = 13.sp)
-                        Text("设置", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { state.openSettings() })
+                        Text("打开旧会话", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable(role = Role.Button) { state.showDrawer = true })
+                        Text("·", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clearAndSetSemantics {})
+                        Text("导入历史对话", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable(role = Role.Button) { onImport() })
+                        Text("·", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clearAndSetSemantics {})
+                        Text("设置", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable(role = Role.Button) { state.openSettings() })
                     }
                 }
                 if (!compact) {

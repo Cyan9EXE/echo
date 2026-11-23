@@ -15,22 +15,23 @@
 
 文件 | 职责 | 关键点
 MainActivity.kt（19） | 入口 | 只做 setContent
-EchoApp.kt（312） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
+EchoApp.kt（336） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
 ChatScreen.kt（407） | 会话页 | 上下文条、导出入口、复活横幅、摘要卡、贴底跟随滚动
-MessageViews.kt（388） | 消息渲染 | 思考折叠、流式光标、分块渲染、计费行、朗读入口、来源
-Composer.kt（308） | 输入区 | 发送/暂停、深度思考/联网、模型标签、语音输入
-WelcomeScreen.kt（131） | 欢迎页 | 品牌 mark、继续上次、导入入口
+MessageViews.kt（337） | 消息渲染 | 思考折叠、流式光标、分块渲染、计费行、朗读入口、来源
+Composer.kt（315） | 输入区 | 发送/暂停、深度思考/联网、模型标签、语音输入
+WelcomeScreen.kt（139） | 欢迎页 | 品牌 mark、继续上次、导入入口
 Drawer.kt（667） | 会话抽屉 | 标题/联想/内容搜索、对话保留面板、失效分组
 SettingsScreen.kt（603） | 设置与关于 | Key 显示保护、模型、最大输出、系统提示词、语音、外观、导入
 HelpDialogs.kt（517） | 答疑与引导 | 12 条 FAQ、4 级导入向导、通用计费确认
 UsageSheet.kt（224） | 用量与费用 | 官方余额、TTS/ASR 账本、生成花费
-State.kt（1687） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
+State.kt（1851） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
 Models.kt（185） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
 Api.kt（239） | 网络与流式 | 请求体、SSE 读取循环、错误映射
 Sse.kt（73） | 协议解析 | 纯函数 parse(event, json)，可 JVM 单测
 Secret.kt（113） | KeyVault | Android Keystore + AES-256-GCM
 Billing.kt（243） | 计费 | 价格常量、用量账本、余额接口
-Speech.kt（635） | 语音 | TTS 流式播放、ASR 录音与识别
+Speech.kt（727） | 语音 | TTS 状态机与流式播放、ASR 录音与识别
+TtsAudio.kt（163） | 音频输出层 | 半带 FIR 升采样、AudioTrack 封装、播放尾等待（可 JVM 单测）
 Export.kt（580） | 导出引擎与面板 | 单会话 Markdown / 全会话 ZIP、会话页导出面板；已接入
 Design.kt（427） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:114）
 Theme.kt（384） | 主题 | 外观、强调色、Oklab 色阶与过渡
@@ -40,7 +41,7 @@ Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（30） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 25 个 Kotlin 文件、约 8,900 行（随提交变化）。
+合计 27 个 Kotlin 文件、约 10,980 行（随提交变化）。
 
 ## 3. 状态与持久化
 
