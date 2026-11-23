@@ -102,7 +102,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 
 - **为什么要抽纯函数**：`ApiClient.stream` 原先把 SSE 循环、请求体拼装和 Android `Handler` 绑死，JVM 单测无法覆盖。现在 `app/src/main/java/app/echo/Api.kt` 顶层有两个 `internal` 纯函数：`buildChatBody(model, thinking, webSearch, systemPrompt, messages, maxTokens): JSONObject`（max_tokens 收敛、stream/thinking、`deepseek_web_search` 工具、空白 system 省略、assistant 历史带 signature 时回放 thinking+text 两块）；`pumpSse(reader, isCancelled, onEvent): Boolean`（逐行解析 event/data、空行触发 `Sse.parse`、记录 message_stop、EOF/取消返回 false）。`ApiClient.stream` 只保留 UI/线程回调，行为不变。
 - **ProtocolTest.kt 15 例**：maxTokens 上下限收敛、model/stream/thinking 开关、webSearch 有无工具、空白 system 省略、signature 历史回放、完整轮次事件顺序与 usage `full` 标志、截断缺 message_stop、取消只消费首个事件、error 帧文案、ping/comment 不产事件、`httpErrorMessage` 401/402/429/503/504 映射、400 detail 直出与内容审核文案、未知码 fallback。
-- **测试**：本节时点（1.0.3）为 91 例 0 失败：Billing 16 / Export 9 / Format 4 / Markdown 28 / Protocol 15 / Sse 19（此前 76 例）；1.0.5 REVIEW-LOOP 第 2、3 轮后为 99 例（新增 `TtsAudioTest` 8 例）。第 6、7 轮后为 112 例（新增 FollowTail 与 Markdown 流式扫描用例）；第 8 轮后为 118 例（新增 `SessionPersistenceTest` 6 例）；第 9 轮后为 121 例（新增加载门禁、恢复对账、重复 id 合并与代理对边界用例）；第 10 轮后 122 例（删除事务化与索引恢复）；第 11 轮后 124 例（墓碑合并与回滚纯函数 2 例）。
+- **测试**：本节时点（1.0.3）为 91 例 0 失败：Billing 16 / Export 9 / Format 4 / Markdown 28 / Protocol 15 / Sse 19（此前 76 例）；1.0.5 REVIEW-LOOP 第 2、3 轮后为 99 例（新增 `TtsAudioTest` 8 例）。第 6、7 轮后为 112 例（新增 FollowTail 与 Markdown 流式扫描用例）；第 8 轮后为 118 例（新增 `SessionPersistenceTest` 6 例）；第 9 轮后为 121 例（新增加载门禁、恢复对账、重复 id 合并与代理对边界用例）；第 10 轮后 122 例（删除事务化与索引恢复）；第 11 轮后 124 例（墓碑合并与回滚纯函数 2 例）；第 12 轮后 126 例（删除事务串行化、持久化过滤与 persistableIds 2 例）。
 - **本地 CI 演练**：`bash scripts/run_tests.sh --smoke` 全绿 = `compileDebugKotlin` + `testDebugUnitTest`（99 绿）+ `mock_sse_server.py --selftest` 15/15 + 冒烟（normal 有 message_stop、truncated 无、429 状态码正确）；脚本自己探测 python3/python。`.github/workflows/ci.yml` 同步存在，因暂不发布 GitHub 未实跑。
 - **真机回归**：1.0.3 安装后真 Key 发 ping →「Pong! 🏓 / What can I help you with today?」，底部「本轮 ¥0.0001 · 输入 5 / 输出 15 tokens」，无「连接提前结束」报错。
 
@@ -203,9 +203,34 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - **验证**：compileDebugKotlin 通过；JVM 单测 **121 例 0 失败**（Billing 16 / Export 9 / FollowTail 6 / Format 4 / Markdown 36 / Protocol 15 / Sse 19 / TtsAudio 8 / SessionPersistence 8）；release 从工作树重建为 1,480,077 B、SHA-256 e3acef1f714b91296a412dc8f68069cf2f608ee6276121f86a57343b9de161d5（mtime 2026-11-24 01:55）。真机仍断开，设备复验未执行。
 - **残留**：P2-6 仍缺 Compose UI / Macrobenchmark 与集成测试；P2-7 设备观感项待实测；P3-6 留待下版；第 10 轮复审已发起（报告见下节）。
 
-### REVIEW-LOOP 第 10 轮（外部审查 → 修复，2026-11-24）,,第 10 轮只读复审（`review/rounds/echo-1.0.5-round10-review.md`，245 行 / 25,397 B；对象文档 HEAD `66eca91`、代码 `716dfcd`）判定 P0=0 / P1=1 / P2=7 / P3=5 不通过。唯一 P1 是删除会话的墓碑 / 消息文件 / 索引不是原子提交（四个崩溃窗口）。修复提交 `0f410a5`（6 files +186/−80）：,,- P1-1：删除改为四步事务——墓碑先落盘 → 删消息文件 → 提交过滤后的索引成功后才撤墓碑；任一步失败保留墓碑并在下次启动重试；启动清理以「过滤后索引已写盘」为前提；加载时按消息文件缺失自愈旧幽灵行。,- P2：`readTombstones` 损坏备份 `.bad`、`saveTombstones` 返回 Boolean、`@Volatile tombstonesSnapshot`、`rebuildIndexFromMessages` 统一过滤墓碑、`serializeSession` 带全元数据迁移、`indexLoading` 加载态与欢迎页提示、删除时同步 `Reader.stopAll()`。,- 验证：122 例 0 失败；APK 1,480,077 B、SHA-256 `1cbc0e0d…`（mtime 2026-11-24 02:27）；真机断开，仅 JVM 验证。
+### REVIEW-LOOP 第 10 轮（外部审查 → 修复，2026-11-24）
 
-### REVIEW-LOOP 第 11 轮（外部审查 → 修复，2026-11-24）,,第 11 轮只读复审（`review/rounds/echo-1.0.5-round11-review.md`，165 行 / 19,159 B；对象 HEAD `0f410a5`）判定 P0=0 / P1=0 / P2=6 / P3=4 有条件通过；第 10 轮 P1 四窗口已按「墓碑先行 → 删文件 → 写过滤索引 → 撤墓碑」闭合。修复提交 `6c29156`（3 files +168/−93）：,,- P2-1 索引写结果分账：`writeIndexNow()` 记录 attempts / failures，空索引也显式写；任一失败置 `indexDirty` + `forceIndexNext`；仅全成功且 `mayClearIndexDirty(epochAtStart, indexEpoch)` 才清脏。,- P2-2 加载复位：`loadIndexAsync` 拆出 `loadIndexBody` 并加 try/catch，成功 / 异常 / 空列表都无条件 `indexLoading=false`。,- P2-3 / P2-5 墓碑并发与删除失败语义：delete 的墓碑读改写全走单线程 IO + 不可变快照 `saveTombstones(ids=snapshot)`；墓碑写失败整体放弃删除，删消息文件失败回滚墓碑并提示「会话未删除：消息文件删除失败，请稍后再试。」。,- P2-4 加载期删除：`applyLoaded` 用当前 `tombstonesSnapshot` 再过滤，本地保留的 current / stream 也跳过已删 id；`PersistencePolicy` 新增 `mergeTombstones` / `removeTombstone` + 2 例单测。,- 验证：debug + release 各 124 例 0 失败；APK 1,480,077 B、SHA-256 `d9c026b2…`（mtime 2026-11-24 02:54）；残留 P2-6（store 接口注入测试）与 P3-2/P3-3/P3-4 留待下版；真机断开。
+- **对象与结论**：只读复审 `review/rounds/echo-1.0.5-round10-review.md`（245 行 / 25,397 B；对象文档 HEAD `66eca91`、代码 `716dfcd`）判定 **P0=0 / P1=1 / P2=7 / P3=5 不通过**；代码修复提交 `0f410a5`（6 files +186/−80）。
+- **P1-1 删除原子性**：删除会话的墓碑 / 消息文件 / 索引不是原子提交（四个崩溃窗口）。改为四步事务——墓碑先落盘 → 删消息文件 → 提交过滤后的索引成功后才撤墓碑；任一步失败保留墓碑并在下次启动重试；启动清理以「过滤后索引已写盘」为前提；加载时按消息文件缺失自愈旧幽灵行。
+- **P2**：`readTombstones` 损坏备份 `.bad`、`saveTombstones` 返回 Boolean、`@Volatile tombstonesSnapshot`、`rebuildIndexFromMessages` 统一过滤墓碑、`serializeSession` 带全元数据迁移、`indexLoading` 加载态与欢迎页提示、删除时同步 `Reader.stopAll()`。
+- **验证**：122 例 0 失败；APK 1,480,077 B、SHA-256 `1cbc0e0d…`（mtime 2026-11-24 02:27）；真机断开，仅 JVM 验证。
+- **残留**：P2-6 store 接口注入测试仍缺；P3 文档行号与设备观感项留待下版；第 11 轮复审已发起（报告见下节）。
+
+### REVIEW-LOOP 第 11 轮（外部审查 → 修复，2026-11-24）
+
+- **对象与结论**：只读复审 `review/rounds/echo-1.0.5-round11-review.md`（165 行 / 19,269 B；对象 HEAD `0f410a5`）判定 **P0=0 / P1=0 / P2=6 / P3=4 有条件通过**；第 10 轮 P1 四窗口已按「墓碑先行 → 删文件 → 写过滤索引 → 撤墓碑」闭合。修复提交 `6c29156`（3 files +168/−93）。
+- **P2-1 索引写结果分账**：`writeIndexNow()` 记录 attempts / failures，空索引也显式写；任一失败置 `indexDirty` + `forceIndexNext`；仅全成功且 `mayClearIndexDirty(epochAtStart, indexEpoch)` 才清脏。
+- **P2-2 加载复位**：`loadIndexAsync` 拆出 `loadIndexBody` 并加 try/catch，成功 / 异常 / 空列表都无条件 `indexLoading=false`。
+- **P2-3 / P2-5 墓碑并发与删除失败语义**：delete 的墓碑读改写全走单线程 IO + 不可变快照 `saveTombstones(ids=snapshot)`；墓碑写失败整体放弃删除，删消息文件失败回滚墓碑并提示「会话未删除：消息文件删除失败，请稍后再试。」。
+- **P2-4 加载期删除**：`applyLoaded` 用当前 `tombstonesSnapshot` 再过滤，本地保留的 current / stream 也跳过已删 id；`PersistencePolicy` 新增 `mergeTombstones` / `removeTombstone` + 2 例单测。
+- **验证**：debug + release 各 124 例 0 失败；APK 1,480,077 B、SHA-256 `d9c026b2…`（mtime 2026-11-24 02:54）；真机断开，仅 JVM 验证。
+- **残留**：P2-6（store 接口注入测试）与 P3-2 / P3-3 / P3-4 留待下版；第 12 轮复审已发起（报告见下节）。
+
+### REVIEW-LOOP 第 12 轮（外部审查 → 修复，2026-11-24）
+
+- **对象与结论**：只读复审 `review/rounds/echo-1.0.5-round12-review.md`（157 行 / 16,351 B；对象 HEAD `7601d32`、代码 `6c29156`）判定 **P0=0 / P1=1 / P2=5 / P3=5 不通过**；修复提交 `13b0c63`（3 files +121/−27）。第 11 轮 P2-1 / P2-2 / P2-3 复核通过，P2-4（回滚返回值未检查）与 P2-5（测试不经过 State / IO）为 PARTIAL。
+- **P1-1 删除事务与保存 / 发送串行化**：新增 `deletingIds` / `deletingSnapshot`，删除开始即置位；`save()` 用 `PersistencePolicy.persistableIds` 过滤待写 id、索引快照也剔除删除中会话，IO 循环写前再查快照；send / open / revive / retryLast 对删除中会话直接拒绝；commitDelete 在索引写成功后于 IO 线程再确认消息文件确实不存在才撤墓碑，失败保留墓碑并提示「重启后清理」。
+- **P2-1 / P2-2 墓碑合并**：`commitDelete` 的墓碑撤除改为 IO 内 `mergeTombstones(readTombstones(), snapshot)` 再写；加载期清理改为 merge 保留加载期新增墓碑，不再整体覆盖。
+- **P2-3 加载异常**：索引加载异常不再 `applyLoaded(emptyList(), false)` 清空列表，改为保留本机会话、置 `indexForceAfterLoad` 并提示重试。
+- **P2-4 回滚检查**：删除回滚写盘返回值纳入检查，回滚失败时提示「重启后可能被清理」。
+- **P2-5 可测性**：新增 `PersistencePolicy.persistableIds` 纯函数 + 2 例单测（持久化过滤跳过删除中 id）。
+- **验证**：debug + release 各 **126 例 0 失败**（SessionPersistence 13）；APK 1,480,077 B、SHA-256 `72d29dd3…`（mtime 2026-11-24 03:14）；真机断开，仅 JVM 验证。
+- **残留**：P2-6（store 接口注入 / 临时目录集成测试）仍缺；P3 中文档行号、`readTombstones` 损坏语义与 State.kt 拆分留待后续；第 13 轮复审待发起。
 
 ### 性能（真机实测，0.9.2 / versionCode 13）
 
@@ -220,7 +245,7 @@ Echo（回声）是一个**本地优先**的第三方 DeepSeek 客户端：
 - Markdown/LaTeX 由自研 `Markdown.kt` 渲染，属手写子集：不支持表格、图片、嵌套列表；块级公式有一定布局开销。流式时最后未闭合段以纯文本尾行渲染，回答完成后整体 Markdown 排版。
 - 导入按会话 id 合并去重，只保留当前分支；附件与图片不会重传。
 - 全会话 ZIP 导出无进度条、不可取消（< 10 s，可接受）；单会话导出整份 JSON 解析，存在内存峰值。
-- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 124 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
+- CI 工作流已就绪、本地 `scripts/run_tests.sh --smoke` 演练全绿（编译 + 126 单测 + mock 自检 + 冒烟），但尚未在 GitHub 实跑（用户要求暂不发布）；联网搜索真实 Key 全链路已于 1.0.2 打通（见 §4 真 Key 冒烟）。
 - ~~release 使用 debug 签名~~ → 1.0.0 起使用正式 release keystore（证书指纹见第 8 节）；无密钥时仍回退 debug，仅限本地内测。
 - ~~联网搜索（deepseek_web_search）尚未用真实 Key 跑全链路~~ → 1.0.2 已打通：服务端执行搜索，客户端收到 `citations_delta` 并在回答末尾渲染「来源」（§4 真 Key 冒烟）。
 - 性能数据以真机（LQAVP23928C105TX，90Hz 档）为准；模拟器是软件渲染，其 gfxinfo jank 比例不作指标。

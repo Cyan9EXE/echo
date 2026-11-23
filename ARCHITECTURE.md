@@ -9,7 +9,7 @@
 - 单 Activity（MainActivity，19 行）：enableEdgeToEdge() 后 setContent { EchoApp(remember { AppState(applicationContext) }) }。
 - 无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE）；无 ViewModel、无 DI 框架、无导航库。
 - 应用代码不使用协程处理网络与持久化：每个流式请求一个 Thread，持久化走单线程 Executor，回调统一回投主线程 Handler。Compose 内部的协程只用于 effect / 动画。
-- 全部 UI 状态集中在 AppState（State.kt，约 2.4k 行）；Compose 直接观察它的 mutableState 与 SnapshotStateList。
+- 全部 UI 状态集中在 AppState（State.kt，约 2.6k 行）；Compose 直接观察它的 mutableState 与 SnapshotStateList。
 
 ## 2. 模块地图
 
@@ -24,8 +24,8 @@ Drawer.kt（698） | 会话抽屉 | 标题/联想/内容搜索、对话保留面
 SettingsScreen.kt（603） | 设置与关于 | Key 显示保护、模型、最大输出、系统提示词、语音、外观、导入
 HelpDialogs.kt（517） | 答疑与引导 | 12 条 FAQ、4 级导入向导、通用计费确认
 UsageSheet.kt（224） | 用量与费用 | 官方余额、TTS/ASR 账本、生成花费
-State.kt（2375） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
-SessionPersistence.kt（57） | 落盘策略 | 索引必写/节流、加载门禁、脏标记代数、恢复对账、坏索引合并（纯 JVM 可单测）
+State.kt（2582） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
+SessionPersistence.kt（83） | 落盘策略 | 索引必写/节流、加载门禁、脏标记代数、恢复对账、坏索引合并（纯 JVM 可单测）
 Models.kt（211） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
 Api.kt（268） | 网络与流式 | 请求体、SSE 读取循环、错误映射
 Sse.kt（73） | 协议解析 | 纯函数 parse(event, json)，可 JVM 单测
@@ -43,7 +43,7 @@ Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（24） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 28 个 Kotlin 文件、约 12,093 行（随提交变化）。
+合计 28 个 Kotlin 文件、约 12,174 行（随提交变化）。
 
 ## 3. 状态与持久化
 
@@ -137,14 +137,14 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
 ## 11. 测试与验证
 
-- JVM 单测 124 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段、代理对边界与 8K 单行扫描推进，36 例）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、加载门禁、脏标记代数、恢复对账、墓碑剔除、坏索引合并与墓碑回滚，11 例）。命令见 CONTRIBUTING.md。
+- JVM 单测 126 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段、代理对边界与 8K 单行扫描推进，36 例）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、加载门禁、脏标记代数、恢复对账、墓碑剔除、坏索引合并与墓碑回滚与持久化过滤 persistableIds，13 例）。命令见 CONTRIBUTING.md。
 - 本地协议联调：scripts/mock_sse_server.py 提供 normal / truncated / error_sse / 429 / 500 五种模式，默认 18080 端口；debug 构建加 -PapiOrigin 指向它。
 - 构建验证：gradle :app:compileDebugKotlin（日常）；release 构建、签名与 Baseline Profile 见 README.md。
 - CI：.github/workflows/ci.yml（GitHub Actions）依次跑 Kotlin 编译、JVM 单测与 scripts/mock_sse_server.py --selftest，环境为 JDK 17 / Gradle 8.9 / Android SDK 35。
 
 ## 12. 已知架构债（按影响排序）
 
-1. State.kt 单文件约 2.4k 行，承担状态、持久化、导入、摘要、计费估算与搜索，继续增长会有维护成本。
+1. State.kt 单文件约 2.6k 行，承担状态、持久化、导入、摘要、计费估算与搜索，继续增长会有维护成本。
 2. Markdown / LaTeX 渲染层（Markdown.kt）已接线到 MessageViews.AnswerText，但为手写子集：不支持表格 / 图片 / 嵌套列表，块级公式有布局开销；流式时未闭合尾行按纯文本渲染，完成后整体解析。
 3. 导入只保存附件文件名，不重传二进制；重复导入依赖会话 ID 去重（FAQ 与向导文案已改为「合并、已存在跳过」口径）。
 4. launcher 图标已换成蓝白命令提示符（1.6:1 圆角瓦片，提交 ccdb156）；应用内 EchoMark 与 launcher 仍是两套绘制，未来需保持同源。
