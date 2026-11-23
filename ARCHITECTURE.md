@@ -1,6 +1,6 @@
 # Echo / 回声 架构说明
 
-> 适用版本：1.0.1（versionCode 2）。版本号唯一来源是 gradle.properties 的 echo.versionCode / echo.versionName。本文描述当前代码，不是承诺；路径相对 app-native/。
+> 适用版本：1.0.5（versionCode 6）。版本号唯一来源是 gradle.properties 的 echo.versionCode / echo.versionName。本文描述当前代码，不是承诺；路径相对 app-native/。
 
 相关文档：能力与限制见 [README.md](README.md)；上游协议见 [docs/protocol-compat.md](docs/protocol-compat.md)；构建、测试与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)；明确边界见 [docs/not-doing.md](docs/not-doing.md)；性能与发布基线见 REVIEW.md（不在本文重复）。
 
@@ -9,14 +9,14 @@
 - 单 Activity（MainActivity，19 行）：enableEdgeToEdge() 后 setContent { EchoApp(remember { AppState(applicationContext) }) }。
 - 无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE）；无 ViewModel、无 DI 框架、无导航库。
 - 应用代码不使用协程处理网络与持久化：每个流式请求一个 Thread，持久化走单线程 Executor，回调统一回投主线程 Handler。Compose 内部的协程只用于 effect / 动画。
-- 全部 UI 状态集中在 AppState（State.kt，约 1.6k 行）；Compose 直接观察它的 mutableState 与 SnapshotStateList。
+- 全部 UI 状态集中在 AppState（State.kt，约 1.9k 行）；Compose 直接观察它的 mutableState 与 SnapshotStateList。
 
 ## 2. 模块地图
 
 文件 | 职责 | 关键点
 MainActivity.kt（19） | 入口 | 只做 setContent
 EchoApp.kt（336） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
-ChatScreen.kt（412） | 会话页 | 上下文条、导出入口、复活横幅、摘要卡、贴底跟随滚动
+ChatScreen.kt（413） | 会话页 | 上下文条、导出入口、复活横幅、摘要卡、贴底跟随滚动
 MessageViews.kt（339） | 消息渲染 | 思考折叠、流式光标、分块渲染、计费行、朗读入口、来源
 Composer.kt（342） | 输入区 | 发送/暂停、深度思考/联网、模型标签、语音输入
 WelcomeScreen.kt（139） | 欢迎页 | 品牌 mark、继续上次、导入入口
@@ -24,13 +24,13 @@ Drawer.kt（667） | 会话抽屉 | 标题/联想/内容搜索、对话保留面
 SettingsScreen.kt（603） | 设置与关于 | Key 显示保护、模型、最大输出、系统提示词、语音、外观、导入
 HelpDialogs.kt（517） | 答疑与引导 | 12 条 FAQ、4 级导入向导、通用计费确认
 UsageSheet.kt（224） | 用量与费用 | 官方余额、TTS/ASR 账本、生成花费
-State.kt（1871） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
-Models.kt（186） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
+State.kt（1937） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
+Models.kt（188） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
 Api.kt（268） | 网络与流式 | 请求体、SSE 读取循环、错误映射
 Sse.kt（73） | 协议解析 | 纯函数 parse(event, json)，可 JVM 单测
 Secret.kt（113） | KeyVault | Android Keystore + AES-256-GCM
 Billing.kt（243） | 计费 | 价格常量、用量账本、余额接口
-Speech.kt（735） | 语音 | TTS 状态机与流式播放、ASR 录音与识别
+Speech.kt（742） | 语音 | TTS 状态机与流式播放、ASR 录音与识别
 TtsAudio.kt（165） | 音频输出层 | 半带 FIR 升采样、AudioTrack 封装、播放尾等待（可 JVM 单测）
 Export.kt（580） | 导出引擎与面板 | 单会话 Markdown / 全会话 ZIP、会话页导出面板；已接入
 Design.kt（427） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:114）
@@ -42,7 +42,7 @@ Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（30） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 27 个 Kotlin 文件、约 11,045 行（随提交变化）。
+合计 27 个 Kotlin 文件、约 11,121 行（随提交变化）。
 
 ## 3. 状态与持久化
 
@@ -55,7 +55,7 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 - 索引 IndexRow 字段：id / title / updatedAt / expired / revived / contextMode / summaryCovered / imported / pinned / costCny / roles / systemSent / chars。列表分区、排序、搜索只读索引，不解析正文。
 - 写入：主线程生成快照 → io 线程 writeAtomic（同目录临时文件 + rename 原子替换）→ msg/<id>.json 与 index.json 分别写。保存有防抖：正常模式 700ms、性能模式 260ms；dirtyIds 记录待写会话。
 - 启动：index.json 存在则 loadIndexAsync() 秒开列表；否则 migrateLegacyAsync() 把旧 sessions.json 拆成新格式。
-- 懒加载：MessageList 在 ready=false 时用 roleSeq 字符串撑出占位项，ensureReadyForUi() 在 io 线程解析正文；常驻内存会话上限 6 个（性能模式 12 个），按最近使用顺序淘汰。
+- 懒加载：MessageList 在 ready=false 时用 roleSeq 字符串撑出占位项；ensureReadyForUi() 对 ≤48KB 的快照在主线程同步解析并即时刷新，更大的快照登记 parsingIds 后在 io 线程解析、回主线程刷新（异步结果不会覆盖本地新消息，见 Models.markReady 守卫）；常驻内存会话上限 6 个（性能模式 12 个），按最近使用顺序淘汰。
 - 容错：writeAtomic 保证单文件不写半截；进程被杀最多丢最后一次防抖窗口内的增量；Key 解密失败按 lost 处理（删除损坏密文，仅内存可用）。
 
 ## 4. Key 与加密
@@ -67,17 +67,17 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
 ## 5. 一次发送的完整链路
 
-1. Composer 调 state.send(text)（State.kt:422）。
+1. Composer 调 state.send(text)（State.kt:450）。
 2. 守卫：正在流式 → 提示先暂停；会话失效未复活 → 提示复活；无 API Key → 打开设置。
 3. 无会话则新建，标题取正文前 24 字；插入 user 消息和空 assistant 占位；联网开启时 effectiveModel 强制 deepseek-flash，否则用所选模型。
-4. includeSystem = 系统提示词非空 且 本会话尚未发送过：只在新会话或上下文被压缩后的首轮发送，避免每轮重复计费。
-5. buildHistory（State.kt:635）组装 ApiMsg：摘要模式下把「更早对话的摘要」拼进尾部第一条 user 消息；深度思考开启且历史里存有 thinking 签名时，assistant 消息以 thinking + text 两个 content 块回传（官方扩展思考要求签名可校验）。
-6. ApiClient.stream（Api.kt:74）在独立 Thread 中 POST /anthropic/v1/messages；max_tokens 取 state.maxTokens（默认 32,768，钳制在 4,096–65,536）；flushMs 性能模式 45、正常 60。
+4. system 提示词每轮都发：官方 Messages API 无状态、不携带上次上下文，因此 send 时对 systemPrompt 做 trim，非空则随每轮请求发送（空白则不发送，省无效 token）；session.systemSent 仅作为历史 / 导入兼容字段保留。
+5. buildHistory（State.kt:700）组装 ApiMsg：摘要模式下把「更早对话的摘要」拼进尾部第一条 user 消息；深度思考开启且历史里存有 thinking 签名时，assistant 消息以 thinking + text 两个 content 块回传（官方扩展思考要求签名可校验）。
+6. ApiClient.stream（Api.kt:160）在独立 Thread 中 POST /anthropic/v1/messages；max_tokens 取 state.maxTokens（默认 32,768，钳制在 4,096–65,536）；flushMs 性能模式 45、正常 60。
 7. SSE 循环逐行读 event: / data:，空行触发 Sse.parse（Sse.kt:24）；文本与思考先写入缓冲，累计 8192 字节或距上次 flush 超过 flushMs 才回投主线程，降低重组频率；signature、citation、usage、stop_reason 直接回投。
 8. State 的 publish 节流：正常 120ms、性能 70ms 更新 reply.text / reply.thinking，bumpRevisionThrottled 触发列表刷新。
 9. usage 合并：message_start 的预填值按 maxOf 合并；message_delta 的全量值覆盖。输入侧 token = input_tokens + cache_read_input_tokens + cache_creation_input_tokens。
 10. 结束：onDone 收敛 thinkingMs、写入 stopReason、finishUsage 累加 session.costCny、systemSent=true、markDirty + save。stop_reason 为 max_tokens 时提示已达到输出上限；用户暂停时提示已保留当前内容。
-11. 失败：onError 保留已生成内容并在尾部加「[中断] 原因」，reply.failed=true，UI 提供重试；重试会删掉最后一条 assistant 后重发（State.kt:623）。
+11. 失败：onError 保留已生成内容并在尾部加「[中断] 原因」，reply.failed=true，UI 提供重试；重试先做与发送相同的守卫（流式中 / 会话失效 / 无 Key 直接提示），通过后才删掉最后一条 assistant 并重发；发送失败会回滚消息并提示（State.kt:664）。
 12. 取消：StreamHandle.cancel() 置 volatile 标志并 disconnect 连接；客户端没有「通知服务端取消」的协议，只是断开 SSE。
 
 没有自动重试、没有指数退避：失败后的重试由用户点击触发，避免不可见的重复计费。
