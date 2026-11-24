@@ -3,7 +3,8 @@ package app.echo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -196,7 +199,7 @@ private fun AppearanceOption(
             .heightIn(min = 70.dp)
             .clip(shape)
             .background(if (selected) C.PanelHigh else C.Panel)
-            .border(1.dp, if (selected) accent else C.Hair, shape)
+            .border(2.dp, if (selected) C.accentText(accent) else C.Hair, shape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(vertical = 9.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -265,7 +268,7 @@ private fun PresetChip(
             .height(30.dp)
             .clip(shape)
             .background(C.previewVoid(preset.appearance))
-            .border(2.dp, if (selected) accent else C.Hair, shape)
+            .border(2.dp, if (selected) C.accentText(accent) else C.Hair, shape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .semantics { contentDescription = preset.label },
     ) {
@@ -291,7 +294,7 @@ private fun ThemeSwatch(
             .heightIn(min = 72.dp)
             .clip(shape)
             .background(if (selected) C.PanelHigh else C.Panel)
-            .border(2.dp, if (selected) accent else C.Hair, shape)
+            .border(2.dp, if (selected) C.accentText(accent) else C.Hair, shape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .semantics { contentDescription = label }
             .padding(vertical = 8.dp),
@@ -310,7 +313,7 @@ private fun CustomAccentRow(state: AppState, accent: Color) {
     Row(
         Modifier.fillMaxWidth().padding(top = 8.dp).clip(shape)
             .background(if (state.customMode) C.PanelHigh else C.Panel)
-            .border(1.dp, if (state.customMode) accent else C.Hair, shape)
+            .border(2.dp, if (state.customMode) C.accentText(accent) else C.Hair, shape)
             .selectable(selected = state.customMode, role = Role.RadioButton) {
                 state.selectCustomAccent(state.customAccent)
             }
@@ -328,7 +331,7 @@ private fun CustomAccentRow(state: AppState, accent: Color) {
                 color = C.Ivory, fontSize = 12.sp, fontWeight = FontWeight.Medium,
             )
             Spacer(Modifier.height(1.dp))
-            Text("HSL 滑杆选色；色块同步显示自定义配色，极端色自动就近取墨或纸。", color = C.Muted, fontSize = 10.sp)
+            Text("HSL 滑杆选色；色块同步显示自定义配色，极端色自动压深或提亮，保证填充上的字仍可读。", color = C.Muted, fontSize = 10.sp)
         }
         Text(
             if (state.customMode) "编辑" else "选择",
@@ -446,13 +449,23 @@ private fun GradientSlider(
                         true
                     }
                 }
-                .pointerInput(widthPx) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { offset -> onChange((offset.x / widthPx).coerceIn(0f, 1f)) },
-                        onDragEnd = { onCommit() },
-                        onDragCancel = { onCommit() },
-                    ) { change, _ ->
-                        onChange((change.position.x / widthPx).coerceIn(0f, 1f))
+                .pointerInput(widthPx, thumbPx) {
+                    val usable = (widthPx - thumbPx).coerceAtLeast(1f)
+                    fun at(x: Float): Float = ((x - thumbPx / 2f) / usable).coerceIn(0f, 1f)
+                    // 点击轨道直接跳转；按住拖动持续更新；抬指才提交。
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        onChange(at(down.position.x))
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (change.changedToUpIgnoreConsumed()) break
+                            if (change.positionChanged()) {
+                                onChange(at(change.position.x))
+                                change.consume()
+                            }
+                        }
+                        onCommit()
                     }
                 },
             contentAlignment = Alignment.CenterStart,
@@ -462,9 +475,7 @@ private fun GradientSlider(
                 Modifier
                     .offset {
                         IntOffset(
-                            (fraction.coerceIn(0f, 1f) * widthPx - thumbPx / 2f)
-                                .roundToInt()
-                                .coerceIn(0, (widthPx - thumbPx).roundToInt()),
+                            (fraction.coerceIn(0f, 1f) * (widthPx - thumbPx).coerceAtLeast(0f)).roundToInt(),
                             0,
                         )
                     }

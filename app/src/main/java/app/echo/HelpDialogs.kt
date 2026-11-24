@@ -86,11 +86,11 @@ internal fun BillingConfirm(
                         Modifier
                             .size(18.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(if (skip) accent.copy(alpha = 0.16f) else Color.Transparent)
-                            .border(1.dp, if (skip) accent else C.ControlBorder, RoundedCornerShape(4.dp)),
+                            .background(if (skip) C.accentText(accent).copy(alpha = 0.16f) else Color.Transparent)
+                            .border(1.dp, if (skip) C.accentText(accent) else C.ControlBorder, RoundedCornerShape(4.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (skip) Text("✓", color = accent, fontSize = 12.sp)
+                        if (skip) Text("✓", color = C.accentText(accent), fontSize = 12.sp)
                     }
                     Spacer(Modifier.width(8.dp))
                     Text("以后不再提示", color = C.Muted, fontSize = 12.sp)
@@ -237,10 +237,10 @@ internal fun ImportGuide(
                             ) {
                                 Box(
                                     Modifier.size(18.dp).clip(RoundedCornerShape(4.dp))
-                                        .background(if (skip) accent.copy(alpha = .16f) else Color.Transparent)
-                                        .border(1.dp, if (skip) accent else C.ControlBorder, RoundedCornerShape(4.dp)),
+                                        .background(if (skip) C.accentText(accent).copy(alpha = .16f) else Color.Transparent)
+                                        .border(1.dp, if (skip) C.accentText(accent) else C.ControlBorder, RoundedCornerShape(4.dp)),
                                     contentAlignment = Alignment.Center,
-                                ) { if (skip) Text("✓", color = accent, fontSize = 12.sp) }
+                                ) { if (skip) Text("✓", color = C.accentText(accent), fontSize = 12.sp) }
                                 Spacer(Modifier.width(8.dp))
                                 Text("以后不再提示", color = C.Muted, fontSize = 12.sp)
                             }

@@ -130,6 +130,28 @@ object C {
         }
 
     /**
+     * 强调色作填充底色前先把明度收进可读区间：中灰既不近黑也不近白，
+     * 固定墨/纸都到不了 4.7:1。已达标则原样返回；否则朝 onAccent 对比
+     * 更优的一侧压深（墨更优）或提亮（纸更优）。
+     */
+    fun readableAccent(accent: Color): Color {
+        var c = accent
+        var guard = 0
+        while (guard++ < 32) {
+            val ink = contrastOn(INK_ON_ACCENT, c)
+            val paper = contrastOn(PAPER_ON_ACCENT, c)
+            val best = kotlin.math.max(ink, paper)
+            if (best >= TEXT_CONTRAST) return c
+            c = if (ink >= paper) {
+                mixOklab(c, Color.Black, 0.06f)
+            } else {
+                mixOklab(c, Color.White, 0.06f)
+            }
+        }
+        return c
+    }
+
+    /**
      * 强调色作 12sp 小字时用的文字色：预设色取设计好的 dayText；
      * 自定义色按最坏底色迭代加深（日间）或提亮（夜间），直到 4.7:1。
      * 夜间亮色本身够读时保持原样。

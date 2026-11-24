@@ -175,7 +175,7 @@ internal fun UsageSheet(state: AppState, accent: Color) {
                         ) {
                             Text(
                                 if (e.kind == "TTS") "朗读" else "识别",
-                                color = if (e.kind == "TTS") accent else C.Ivory,
+                                color = if (e.kind == "TTS") C.accentText(accent) else C.Ivory,
                                 fontSize = 12.sp,
                             )
                             Spacer(Modifier.width(10.dp))

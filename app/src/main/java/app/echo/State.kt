@@ -23,6 +23,8 @@ import java.util.concurrent.Executors
 import java.util.zip.ZipInputStream
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 
 class AppState(private val context: Context) {
     private val appContext = context.applicationContext
@@ -109,7 +111,9 @@ class AppState(private val context: Context) {
     // 槽位顺序不变（0 沙金 … 4 灰紫，5 靛蓝）；缺省/非法值回退雾蓝（1）。
     var skinIndex by mutableStateOf(initialSkinIndex())
         private set
-    var customAccent by mutableStateOf(prefs.getInt("customAccent", 0xFF759ECC.toInt()))
+    var customAccent by mutableStateOf(
+        C.readableAccent(Color(prefs.getInt("customAccent", 0xFF759ECC.toInt()))).toArgb(),
+    )
         private set
     /** 日间第五种外观：底色由用户自选，存成 ARGB（只换色度，明度仍跟随纸白）。 */
     var customThemeArgb by mutableStateOf(prefs.getInt("customTheme", 0xFFF3E9D8.toInt()))
@@ -372,9 +376,10 @@ class AppState(private val context: Context) {
 
     /** Enters the custom-colour slot and stores the picked colour. */
     fun selectCustomAccent(argb: Int) {
-        customAccent = argb
+        val readable = C.readableAccent(Color(argb)).toArgb()
+        customAccent = readable
         skinIndex = C.skins.size
-        prefs.edit().putInt("customAccent", argb).putInt("skinIndex", skinIndex).apply()
+        prefs.edit().putInt("customAccent", readable).putInt("skinIndex", skinIndex).apply()
     }
 
     fun updateEyeMode(mode: Int) {

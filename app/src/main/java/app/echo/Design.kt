@@ -395,7 +395,7 @@ internal fun Chip(
         onClick = onClick,
         modifier = Modifier
             .heightIn(min = 24.dp)
-            .border(1.dp, if (active) accent.copy(alpha = .5f) else C.Hair, RoundedCornerShape(12.dp)),
+            .border(1.dp, if (active) C.accentText(accent) else C.Hair, RoundedCornerShape(12.dp)),
         shape = RoundedCornerShape(12.dp),
         scale = .95f,
         description = label,

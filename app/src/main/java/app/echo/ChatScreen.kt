@@ -347,7 +347,7 @@ internal fun SummaryBlockView(state: AppState, session: Session, block: SummaryB
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         if (message.role == "user") "你" else "助手",
-                                        color = if (message.role == "user") C.Muted else accent,
+                                        color = if (message.role == "user") C.Muted else C.accentText(accent),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium,
                                     )
