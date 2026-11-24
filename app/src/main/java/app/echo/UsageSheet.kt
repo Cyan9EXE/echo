@@ -211,7 +211,7 @@ internal fun UsageSheet(state: AppState, accent: Color) {
                     description = "打开官方用量页",
                 ) {
                     Box(
-                        Modifier.fillMaxWidth().border(1.dp, accent.copy(alpha = .55f), RoundedCornerShape(10.dp))
+                        Modifier.fillMaxWidth().border(1.dp, C.accentText(accent), RoundedCornerShape(10.dp))
                             .padding(vertical = 11.dp),
                         contentAlignment = Alignment.Center,
                     ) {

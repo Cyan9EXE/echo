@@ -66,6 +66,7 @@ class ThemeContrastTest {
         val args = listOf(
             0xFF000000, 0xFFFFFFFF, 0xFF05060A, 0xFFF4F2ED, 0xFFFF0000,
             0xFF808080, 0xFF737373, 0xFF777777, 0xFF6F6F6F,
+            0xFF3A6EA5, 0xFFB5651D, 0xFF7FBF7F, 0xFFD4A0A0, 0xFF4B0082, 0xFF9E9E9E,
         )
         listOf(true, false).forEach { day ->
             C.initDay(day)
@@ -87,13 +88,11 @@ class ThemeContrastTest {
         listOf(true, false).forEach { day ->
             C.initDay(day)
             val tag = if (day) "day" else "night"
-            var level = 0
-            while (level <= 0xFF) {
+            for (level in 0..0xFF) {
                 val grey = Color(0xFF000000.toInt() or (level shl 16) or (level shl 8) or level)
                 val fill = C.readableAccent(grey)
                 val value = contrast(C.onAccent(fill), fill)
                 assertTrue("$tag grey=$level -> ${hex(fill)} 对比度 $value < 4.7", value >= 4.7f)
-                level += 0x11
             }
         }
     }
@@ -116,6 +115,36 @@ class ThemeContrastTest {
                 val border = C.accentText(accent)
                 assertContrast("$tag border(${hex(accent)})", border, C.textBackgrounds(accent), 3f)
                 assertContrast("$tag border-on-panel(${hex(accent)})", border, listOf(C.Void, C.Panel, C.PanelHigh), 3f)
+            }
+        }
+    }
+
+    private fun blendOver(foreground: Color, background: Color, alpha: Float): Color = Color(
+        red = foreground.red * alpha + background.red * (1f - alpha),
+        green = foreground.green * alpha + background.green * (1f - alpha),
+        blue = foreground.blue * alpha + background.blue * (1f - alpha),
+        alpha = 1f,
+    )
+
+    @Test
+    fun selectedBorderOnTintedSurfacesMeetsNonTextContrast() {
+        listOf(true, false).forEach { day ->
+            C.initDay(day)
+            val tag = if (day) "day" else "night"
+            val accents = C.skins.map { if (day) it.day else it.night } +
+                listOf(Color(0xFF808080), Color(0xFF737373), Color(0xFF6F6F6F))
+            accents.forEach { accent ->
+                val border = C.accentText(accent)
+                val tint = accent.copy(alpha = .16f)
+                listOf(C.Void, C.Panel, C.PanelHigh).forEachIndexed { index, base ->
+                    val bg = blendOver(tint, base, .16f)
+                    val value = contrast(border, bg)
+                    assertTrue(
+                        "$tag tint-border base#$index(${hex(base)}) 对比度 $value < 3.0 " +
+                            "(accent=${hex(accent)} border=${hex(border)})",
+                        value >= 3f,
+                    )
+                }
             }
         }
     }

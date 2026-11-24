@@ -156,8 +156,8 @@ internal fun ThemeSheet(state: AppState, accent: Color) {
                     HslEditor(
                         seed = state.customAccent,
                         title = "自定义强调色",
-                        hint = "松开滑杆后生效；指示块会同步显示自定义配色。",
-                        previewColor = { Color(it) },
+                        hint = "松开滑杆后生效；松手时自动压深或提亮，保证填充上的字可读。",
+                        previewColor = { C.readableAccent(Color(it)) },
                         onCommit = { state.selectCustomAccent(it) },
                     )
                 }

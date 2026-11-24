@@ -169,7 +169,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     visualTransformation = if (keyShown) VisualTransformation.None else PasswordVisualTransformation(),
                     textStyle = TextStyle(color = C.Ivory, fontSize = 14.sp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = accent, unfocusedBorderColor = C.Hair,
+                        focusedBorderColor = C.accentText(accent), unfocusedBorderColor = C.Hair,
                         focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
                     ),
                 )
@@ -240,7 +240,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                             Box(
                                 Modifier
                                     .background(if (active) accent.copy(alpha = .16f) else Color.Transparent, RoundedCornerShape(9.dp))
-                                    .border(1.dp, if (active) accent else C.Hair, RoundedCornerShape(9.dp))
+                                    .border(1.dp, if (active) C.accentText(accent) else C.Hair, RoundedCornerShape(9.dp))
                                     .padding(horizontal = 10.dp, vertical = 8.dp),
                             ) { Text(m, color = if (active) C.accentText(accent) else C.Muted, fontSize = 10.sp) }
                         }
@@ -265,7 +265,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                             Box(
                                 Modifier
                                     .background(if (prompt == value) accent.copy(alpha = .16f) else Color.Transparent, RoundedCornerShape(8.dp))
-                                    .border(1.dp, if (prompt == value) accent else C.Hair, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (prompt == value) C.accentText(accent) else C.Hair, RoundedCornerShape(8.dp))
                                     .padding(horizontal = 9.dp, vertical = 7.dp),
                             ) { Text(label, color = if (prompt == value) C.accentText(accent) else C.Muted, fontSize = 10.sp) }
                         }
@@ -281,7 +281,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     maxLines = 5,
                     textStyle = TextStyle(color = C.Ivory, fontSize = 12.sp, lineHeight = 18.sp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = accent, unfocusedBorderColor = C.Hair,
+                        focusedBorderColor = C.accentText(accent), unfocusedBorderColor = C.Hair,
                         focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
                     ),
                 )
@@ -322,7 +322,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                             Box(
                                 Modifier
                                     .background(if (on) accent.copy(alpha = .16f) else Color.Transparent, RoundedCornerShape(9.dp))
-                                    .border(1.dp, if (on) accent else C.Hair, RoundedCornerShape(9.dp))
+                                    .border(1.dp, if (on) C.accentText(accent) else C.Hair, RoundedCornerShape(9.dp))
                                     .padding(horizontal = 10.dp, vertical = 7.dp),
                             ) { Text(label, color = if (on) C.accentText(accent) else C.Muted, fontSize = 10.sp) }
                         }
@@ -343,7 +343,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                             Box(
                                 Modifier
                                     .background(if (on) accent.copy(alpha = .16f) else Color.Transparent, RoundedCornerShape(9.dp))
-                                    .border(1.dp, if (on) accent else C.Hair, RoundedCornerShape(9.dp))
+                                    .border(1.dp, if (on) C.accentText(accent) else C.Hair, RoundedCornerShape(9.dp))
                                     .padding(horizontal = 10.dp, vertical = 8.dp),
                             ) { Text(label, color = if (on) C.accentText(accent) else C.Muted, fontSize = 10.sp) }
                         }

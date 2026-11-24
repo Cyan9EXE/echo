@@ -111,9 +111,20 @@ class AppState(private val context: Context) {
     // 槽位顺序不变（0 沙金 … 4 灰紫，5 靛蓝）；缺省/非法值回退雾蓝（1）。
     var skinIndex by mutableStateOf(initialSkinIndex())
         private set
-    var customAccent by mutableStateOf(
-        C.readableAccent(Color(prefs.getInt("customAccent", 0xFF759ECC.toInt()))).toArgb(),
-    )
+    /**
+     * 自定义强调色每次启动按当前可读性算法归一，并把归一结果写回 prefs，
+     * 避免同一份原始输入被反复重解释；内存渲染值与落盘值保持一致。
+     */
+    private fun initialCustomAccent(): Int {
+        val stored = prefs.getInt("customAccent", 0xFF759ECC.toInt())
+        val readable = C.readableAccent(Color(stored)).toArgb()
+        if (readable != stored) {
+            prefs.edit().putInt("customAccent", readable).apply()
+        }
+        return readable
+    }
+
+    var customAccent by mutableStateOf(initialCustomAccent())
         private set
     /** 日间第五种外观：底色由用户自选，存成 ARGB（只换色度，明度仍跟随纸白）。 */
     var customThemeArgb by mutableStateOf(prefs.getInt("customTheme", 0xFFF3E9D8.toInt()))

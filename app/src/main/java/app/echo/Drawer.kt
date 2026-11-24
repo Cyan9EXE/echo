@@ -139,7 +139,7 @@ internal fun SearchModeTab(label: String, selected: Boolean, accent: Color, onCl
         onClick = onClick,
         modifier = Modifier
             .heightIn(min = 24.dp)
-            .border(1.dp, if (selected) accent.copy(alpha = .55f) else C.Hair, RoundedCornerShape(12.dp)),
+            .border(1.dp, if (selected) C.accentText(accent) else C.Hair, RoundedCornerShape(12.dp)),
         shape = RoundedCornerShape(12.dp),
         scale = .95f,
         description = label,
@@ -411,7 +411,7 @@ internal fun DrawerPanel(
                 singleLine = true,
                 textStyle = TextStyle(color = C.Ivory, fontSize = 14.sp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = accent, unfocusedBorderColor = C.Hair,
+                    focusedBorderColor = C.accentText(accent), unfocusedBorderColor = C.Hair,
                     focusedContainerColor = C.PanelHigh, unfocusedContainerColor = C.PanelHigh,
                 ),
             )
