@@ -234,7 +234,7 @@ internal fun Composer(state: AppState, accent: Color) {
                                     .background(accent.copy(alpha = ignite), CircleShape),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                SendGlyph(Modifier.size(20.dp), C.onAccent.copy(alpha = ignite))
+                                SendGlyph(Modifier.size(20.dp), C.onAccent(accent).copy(alpha = ignite))
                                 if (ignite < .5f) SendGlyph(Modifier.size(20.dp), C.Muted)
                             }
                         }

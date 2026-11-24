@@ -97,7 +97,7 @@ internal fun UsageSheet(state: AppState, accent: Color) {
                             Spacer(Modifier.weight(1f))
                             Text(
                                 "刷新",
-                                color = accent,
+                                color = C.accentText(accent),
                                 fontSize = 11.sp,
                                 modifier = Modifier.clickable {
                                     if (!loading) refresh += 1
@@ -215,7 +215,7 @@ internal fun UsageSheet(state: AppState, accent: Color) {
                             .padding(vertical = 11.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("打开官方用量页", color = accent, fontSize = 13.sp)
+                        Text("打开官方用量页", color = C.accentText(accent), fontSize = 13.sp)
                     }
                 }
             }

@@ -77,7 +77,7 @@ fun EchoApp(state: AppState) {
     var statusBarDark by remember { mutableStateOf(C.Void.luminance() > 0.42f) }
     var themeInitialized by remember { mutableStateOf(false) }
     LaunchedEffect(
-        C.isDay, C.eyeMode, C.customThemeOn, state.skinIndex, state.customAccent, motionOn,
+        C.isDay, C.eyeMode, C.customThemeOn, state.skinIndex, motionOn,
     ) {
         val wantDay = if (C.isDay) 1f else 0f
         val wantEye = if (C.isDay && C.eyeMode != 0) 1f else 0f
@@ -143,11 +143,11 @@ fun EchoApp(state: AppState) {
     MaterialTheme(
         colorScheme = lightColorScheme(
             primary = accent,
-            onPrimary = C.Void,
+            onPrimary = C.onAccent(accent),
             primaryContainer = C.PanelHigh,
             onPrimaryContainer = C.Ivory,
             secondary = C.Muted,
-            onSecondary = C.Void,
+            onSecondary = C.onAccent(C.Muted),
             background = C.Void,
             onBackground = C.Ivory,
             surface = C.Panel,

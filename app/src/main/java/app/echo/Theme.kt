@@ -25,7 +25,7 @@ object C {
     var themeProgress by mutableFloatStateOf(0f)
 
     val skins = listOf(
-        Skin("沙金", Color(0xFFE2C070), Color(0xFFC9A227), Color(0xFF7A6414)),
+        Skin("沙金", Color(0xFFE2C070), Color(0xFFC9A227), Color(0xFF6F5A0F)),
         Skin("雾蓝", Color(0xFF759ECC), Color(0xFF5E86B8), Color(0xFF3D5D82)),
         Skin("黛青", Color(0xFF60A6A5), Color(0xFF3F8F8C), Color(0xFF2E6360)),
         Skin("陶土", Color(0xFFD1877B), Color(0xFFC58573), Color(0xFF85473C)),
@@ -90,10 +90,10 @@ object C {
     }
 
     /** 面板里展示自选底色的柔和预览。 */
-    fun customField(): Color = customTint?.let { tinted(Color(0xFFF4F2ED), it, 0.03f) } ?: Color(0xFFF4F2ED)
+    fun customField(): Color = customTint?.let { tinted(Color(0xFFF4F2ED), it, 0.010f) } ?: Color(0xFFF4F2ED)
 
     /** 选色时预览「这个 ARGB 当底色会长什么样」，不改全局状态。 */
-    fun fieldPreview(argb: Int): Color = tinted(Color(0xFFF4F2ED), Color(argb), 0.03f)
+    fun fieldPreview(argb: Int): Color = tinted(Color(0xFFF4F2ED), Color(argb), 0.010f)
 
     fun previewVoid(look: Look): Color = when (look) {
         Look.INK -> Color(0xFF050608)
@@ -118,28 +118,46 @@ object C {
 
     fun tone(accent: Color): Color = mixOklab(accent, Color.Black, 0.30f)
 
-    /** 填充上的文字：亮色强调色上一律近黑，日夜都成立。 */
-    val onAccent: Color
-        get() = if (isDay) Color(0xFF0C0A07) else Color(0xFF050608)
+    /**
+     * 填充上的文字：在近黑与纸白里取对比度高的一侧。
+     * 自定义强调色可能是任意明度，固定近黑放在深色填充上会失读。
+     */
+    fun onAccent(accent: Color): Color =
+        if (contrastOn(INK_ON_ACCENT, accent) >= contrastOn(PAPER_ON_ACCENT, accent)) {
+            INK_ON_ACCENT
+        } else {
+            PAPER_ON_ACCENT
+        }
 
     /**
-     * 日间强调色作 12sp 小字时用的深色版：预设色取设计好的 dayText，
-     * 自定义色按与底色的对比度迭代加深；夜间直接用亮色本身。
+     * 强调色作 12sp 小字时用的文字色：预设色取设计好的 dayText；
+     * 自定义色按最坏底色迭代加深（日间）或提亮（夜间），直到 4.7:1。
+     * 夜间亮色本身够读时保持原样。
      */
     fun accentText(accent: Color): Color {
-        if (!isDay) return accent
-        val preset = nearestSkin(accent)
-        if (preset >= 0) return skins[preset].dayText
-        var c = accent
+        val backgrounds = textBackgrounds(accent)
+        val preset = if (isDay) nearestSkin(accent) else -1
+        var c = if (preset >= 0) skins[preset].dayText else accent
         var guard = 0
-        while (contrastOn(c, Void) < 4.6f && guard++ < 32) {
-            c = mixOklab(c, Color.Black, 0.06f)
+        val toward = if (isDay) Color.Black else Color.White
+        while (minContrastOn(c, backgrounds) < TEXT_CONTRAST && guard++ < 32) {
+            c = mixOklab(c, toward, 0.06f)
         }
         return c
     }
 
+    /**
+     * 小字可能落到的全部底色：卡片、高亮卡片，以及 16% 强调色叠在卡片上的选中态。
+     * 取其中最坏的一档做校验，避免只对着 Void 调深浅。
+     */
+    internal fun textBackgrounds(accent: Color): List<Color> =
+        listOf(Void, Panel, PanelHigh, mixOklab(Panel, accent, 0.16f))
+
+    private fun minContrastOn(c: Color, backgrounds: List<Color>): Float =
+        backgrounds.minOf { contrastOn(c, it) }
+
     /** OKLab 距离最近的预设强调色；超过阈值视为自定义色。 */
-    private fun nearestSkin(accent: Color): Int {
+    internal fun nearestSkin(accent: Color): Int {
         val x = accent.toOklab()
         var best = -1
         var bestDistance = 0.033f
@@ -231,6 +249,10 @@ data class Skin(val label: String, val night: Color, val day: Color, val dayText
 data class ThemeMark(val top: Color, val bottom: Color)
 
 data class Preset(val id: String, val label: String, val appearance: C.Look, val accent: Int)
+
+private val INK_ON_ACCENT = Color(0xFF0C0A07)
+private val PAPER_ON_ACCENT = Color(0xFFF3EFE7)
+private const val TEXT_CONTRAST = 4.7f
 
 private fun inkFlip(bgLuminance: Float): Float {
     val t = ((bgLuminance - 0.16f) / 0.10f).coerceIn(0f, 1f)

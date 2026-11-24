@@ -222,7 +222,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                         Modifier.fillMaxWidth().background(accent).padding(vertical = 11.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(if (state.apiKey.isBlank()) "保存并开始" else "保存", color = C.onAccent, fontSize = 15.sp)
+                        Text(if (state.apiKey.isBlank()) "保存并开始" else "保存", color = C.onAccent(accent), fontSize = 15.sp)
                     }
                 }
                 Spacer(Modifier.height(22.dp))
@@ -299,7 +299,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     Switch(
                         checked = state.thinking,
                         onCheckedChange = state::updateThinking,
-                        colors = SwitchDefaults.colors(checkedThumbColor = C.onAccent, checkedTrackColor = accent, uncheckedThumbColor = C.Muted, uncheckedTrackColor = C.PanelHigh),
+                        colors = SwitchDefaults.colors(checkedThumbColor = C.onAccent(accent), checkedTrackColor = accent, uncheckedThumbColor = C.Muted, uncheckedTrackColor = C.PanelHigh),
                     )
                 }
                 Spacer(Modifier.height(16.dp))
@@ -456,7 +456,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     Switch(
                         checked = state.showBillingHints,
                         onCheckedChange = state::updateShowBillingHints,
-                        colors = SwitchDefaults.colors(checkedThumbColor = C.onAccent, checkedTrackColor = accent),
+                        colors = SwitchDefaults.colors(checkedThumbColor = C.onAccent(accent), checkedTrackColor = accent),
                     )
                 }
                 Spacer(Modifier.height(22.dp))
@@ -489,7 +489,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                             Switch(
                                 checked = !state.importGuideOff,
                                 onCheckedChange = { state.updateImportGuide(!it) },
-                                colors = SwitchDefaults.colors(checkedThumbColor = C.onAccent, checkedTrackColor = accent),
+                                colors = SwitchDefaults.colors(checkedThumbColor = C.onAccent(accent), checkedTrackColor = accent),
                             )
                         }
                     }

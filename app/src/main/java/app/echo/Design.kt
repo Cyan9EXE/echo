@@ -388,7 +388,7 @@ internal fun Chip(
     accent: Color,
     onClick: () -> Unit,
 ) {
-    val color = if (active) accent else C.Muted
+    val color = if (active) C.accentText(accent) else C.Muted
     // 比例对齐官方 App：高 24dp、全圆角、字号 12sp，图标 12dp、间距 4dp。
     // 官方实测（1080x2388 / 474dpi）：chip 高 72px=24.3dp、内文 12sp、左右内距约 10dp。
     Pressable(

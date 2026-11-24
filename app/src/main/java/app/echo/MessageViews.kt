@@ -70,7 +70,7 @@ internal fun CitationsBlock(citations: List<Citation>, accent: Color) {
                     Modifier.fillMaxWidth().padding(vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text((index + 1).toString(), color = accent, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Text((index + 1).toString(), color = C.accentText(accent), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         c.title.ifBlank { c.url },
@@ -136,7 +136,7 @@ internal fun AssistantBubble(m: Msg, accent: Color, state: AppState, live: Boole
             }
             if (m.citations.isNotEmpty()) {
                 Spacer(Modifier.width(6.dp))
-                Text("联网", color = accent, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                Text("联网", color = C.accentText(accent), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
             }
         }
         Spacer(Modifier.height(7.dp))
@@ -298,7 +298,7 @@ internal fun ThinkingBlock(m: Msg, accent: Color, live: Boolean) {
                 if (thinking.isNotBlank()) {
                     Text(
                         if (open) "收起" else "展开",
-                        color = accent, fontSize = 11.sp,
+                        color = C.accentText(accent), fontSize = 11.sp,
                         modifier = Modifier.clickable { open = !open }.padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }

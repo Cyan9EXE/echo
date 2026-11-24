@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -38,6 +39,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -190,7 +197,7 @@ private fun AppearanceOption(
             .clip(shape)
             .background(if (selected) C.PanelHigh else C.Panel)
             .border(1.dp, if (selected) accent else C.Hair, shape)
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(vertical = 9.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -258,8 +265,9 @@ private fun PresetChip(
             .height(30.dp)
             .clip(shape)
             .background(C.previewVoid(preset.appearance))
-            .border(1.dp, if (selected) accent else C.Hair, shape)
-            .clickable(onClick = onClick),
+            .border(2.dp, if (selected) accent else C.Hair, shape)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .semantics { contentDescription = preset.label },
     ) {
         Box(
             Modifier.align(Alignment.BottomEnd).padding(4.dp).size(9.dp).clip(CircleShape)
@@ -283,8 +291,9 @@ private fun ThemeSwatch(
             .heightIn(min = 72.dp)
             .clip(shape)
             .background(if (selected) C.PanelHigh else C.Panel)
-            .border(1.5.dp, if (selected) accent else C.Hair, shape)
-            .clickable(onClick = onClick)
+            .border(2.dp, if (selected) accent else C.Hair, shape)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .semantics { contentDescription = label }
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -302,7 +311,9 @@ private fun CustomAccentRow(state: AppState, accent: Color) {
         Modifier.fillMaxWidth().padding(top = 8.dp).clip(shape)
             .background(if (state.customMode) C.PanelHigh else C.Panel)
             .border(1.dp, if (state.customMode) accent else C.Hair, shape)
-            .clickable { state.selectCustomAccent(state.customAccent) }
+            .selectable(selected = state.customMode, role = Role.RadioButton) {
+                state.selectCustomAccent(state.customAccent)
+            }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -317,7 +328,7 @@ private fun CustomAccentRow(state: AppState, accent: Color) {
                 color = C.Ivory, fontSize = 12.sp, fontWeight = FontWeight.Medium,
             )
             Spacer(Modifier.height(1.dp))
-            Text("HSL 滑杆选色；冒号指示块同步显示自定义配色。", color = C.Muted, fontSize = 10.sp)
+            Text("HSL 滑杆选色；色块同步显示自定义配色，极端色自动就近取墨或纸。", color = C.Muted, fontSize = 10.sp)
         }
         Text(
             if (state.customMode) "编辑" else "选择",
@@ -395,9 +406,9 @@ private fun HslEditor(
         fraction = light,
         brush = Brush.horizontalGradient(
             listOf(
-                Color(ColorUtils.HSLToColor(floatArrayOf(hue.coerceIn(0f, 360f), sat.coerceIn(0f, 1f), .04f))),
+                Color(ColorUtils.HSLToColor(floatArrayOf(hue.coerceIn(0f, 360f), sat.coerceIn(0f, 1f), 0f))),
                 Color(ColorUtils.HSLToColor(floatArrayOf(hue.coerceIn(0f, 360f), sat.coerceIn(0f, 1f), .5f))),
-                Color(ColorUtils.HSLToColor(floatArrayOf(hue.coerceIn(0f, 360f), sat.coerceIn(0f, 1f), .96f))),
+                Color(ColorUtils.HSLToColor(floatArrayOf(hue.coerceIn(0f, 360f), sat.coerceIn(0f, 1f), 1f))),
             ),
         ),
         thumb = preview,
@@ -426,7 +437,16 @@ private fun GradientSlider(
                 .fillMaxWidth()
                 .height(32.dp)
                 .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
-                .pointerInput(Unit) {
+                .semantics {
+                    contentDescription = label
+                    progressBarRangeInfo = ProgressBarRangeInfo(fraction.coerceIn(0f, 1f), 0f..1f)
+                    setProgress { value ->
+                        onChange(value.coerceIn(0f, 1f))
+                        onCommit()
+                        true
+                    }
+                }
+                .pointerInput(widthPx) {
                     detectHorizontalDragGestures(
                         onDragStart = { offset -> onChange((offset.x / widthPx).coerceIn(0f, 1f)) },
                         onDragEnd = { onCommit() },
@@ -440,7 +460,14 @@ private fun GradientSlider(
             Box(Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(brush, CircleShape))
             Box(
                 Modifier
-                    .offset { IntOffset((fraction.coerceIn(0f, 1f) * (widthPx - thumbPx)).roundToInt(), 0) }
+                    .offset {
+                        IntOffset(
+                            (fraction.coerceIn(0f, 1f) * widthPx - thumbPx / 2f)
+                                .roundToInt()
+                                .coerceIn(0, (widthPx - thumbPx).roundToInt()),
+                            0,
+                        )
+                    }
                     .size(18.dp)
                     .clip(CircleShape)
                     .background(thumb)

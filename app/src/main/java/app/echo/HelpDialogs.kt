@@ -111,7 +111,7 @@ internal fun BillingConfirm(
                             .clickable { onConfirm(skip) }
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
-                        Text(confirmLabel, color = C.onAccent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(confirmLabel, color = C.onAccent(accent), fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -253,7 +253,7 @@ internal fun ImportGuide(
                                 TextButton(
                                     onClick = { copied = false; level = 1 },
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                ) { Text("答疑", color = accent, fontSize = 13.sp) }
+                                ) { Text("答疑", color = C.accentText(accent), fontSize = 13.sp) }
                                 TextButton(
                                     onClick = onClose,
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -266,7 +266,7 @@ internal fun ImportGuide(
                                         .clickable(onClick = onPick)
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                 ) {
-                                    Text("去选择", color = C.onAccent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("去选择", color = C.onAccent(accent), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
@@ -317,7 +317,7 @@ internal fun ImportGuide(
                                     Spacer(Modifier.height(10.dp))
                                     Text(
                                         faq.linkLabel + "  ↗",
-                                        color = accent, fontSize = 12.sp,
+                                        color = C.accentText(accent), fontSize = 12.sp,
                                         modifier = Modifier.clickable { uri.openUri(faq.linkUrl) },
                                     )
                                 }
@@ -341,7 +341,7 @@ internal fun ImportGuide(
                                         .clickable { copied = false; level = 3 }
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                 ) {
-                                    Text("我还没懂", color = C.onAccent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("我还没懂", color = C.onAccent(accent), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
@@ -406,7 +406,7 @@ internal fun ImportGuide(
                                         .clickable(onClick = onPick)
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                 ) {
-                                    Text("去选择", color = C.onAccent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("去选择", color = C.onAccent(accent), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
@@ -471,7 +471,7 @@ internal fun HelpCenter(state: AppState, accent: Color) {
                         faqs.forEachIndexed { index, (group, question, answer) ->
                             if (group != lastGroup) {
                                 lastGroup = group
-                                Text(group, color = accent, fontSize = 11.sp, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
+                                Text(group, color = C.accentText(accent), fontSize = 11.sp, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
                             }
                             Column {
                                 Pressable(
@@ -500,7 +500,7 @@ internal fun HelpCenter(state: AppState, accent: Color) {
                                     if (link != null) {
                                         Text(
                                             link.first + "  ↗",
-                                            color = accent,
+                                            color = C.accentText(accent),
                                             fontSize = 12.sp,
                                             modifier = Modifier.clickable { uri.openUri(link.second) }.padding(bottom = 10.dp),
                                         )

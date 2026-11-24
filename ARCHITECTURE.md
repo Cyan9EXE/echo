@@ -44,7 +44,7 @@ Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（24） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 29 个 Kotlin 文件、约 12,273 行（随提交变化）。
+合计 29 个 Kotlin 文件、约 12,400 行（随提交变化）。
 
 ## 3. 状态与持久化
 
@@ -132,13 +132,13 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 ## 10. 设计系统与品牌层
 
 - Design.kt 提供设计 token、通用组件与 EchoMark 品牌标记；Glyphs.kt 用 Compose 画图标字形，不依赖位图。
-- Theme.kt：外观 Look = PAPER（日间）/ INK（夜间）/ WARM（暖黄）/ GREEN（淡绿）/ CUSTOM（日间自定义底色）；6 种强调色（沙金/雾蓝/黛青/陶土/灰紫/靛蓝）× 4 外观 = 24 个预设；夜间底色 #050608，日间 #F4F2ED；暖黄与淡绿只在日间、由 eyeMode 控制。强调色拆三角色：填充用 accent（日/夜各一值），日间小字用 accentText（命中预设时取 dayText，否则按对纸白的对比度自动加深到 ≥4.6），填充上的字用 onAccent（近黑）；夜间 accent 同时负责填充与小字。
+- Theme.kt：外观 Look = PAPER（日间）/ INK（夜间）/ WARM（暖黄）/ GREEN（淡绿）/ CUSTOM（日间自定义底色）；6 种强调色（沙金/雾蓝/黛青/陶土/灰紫/靛蓝）× 4 外观 = 24 个预设；夜间底色 #050608，日间 #F4F2ED；暖黄与淡绿只在日间、由 eyeMode 控制。强调色拆三角色：填充用 accent（日/夜各一值），日间小字用 accentText（命中预设时取 dayText，否则同时对照纸白 / 面板 / 面板高亮 / 16% 强调色叠底，在最坏底色上自动加深到 ≥4.7），填充上的字用 onAccent（在近黑与纸白中取对 accent 对比度更高者）；夜间 accent 同时负责填充与小字，近黑 / 近白等自定义极端色同样走这套兜底。
 - Android launcher 图标在 app/src/main/res/mipmap-*/ic_launcher* 与 adaptive 资源里，当前是蓝白命令提示符（1.6:1 圆角瓦片，提交 ccdb156）；应用内 EchoMark 与 launcher mark 是两套绘制，需保持形状语言同源。
 - 文案语气：短句、克制、不带官方背书；欢迎页「欢迎回来，随时续上。」，关于页 slogan「把没说完的话，接回来。」，输入区页脚「内容由 AI 生成，请仔细甄别 · 数据只保存在本机」。
 
 ## 11. 测试与验证
 
-- JVM 单测 132 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段、代理对边界与 8K 单行扫描推进，36 例）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、加载门禁、脏标记代数、恢复对账、墓碑剔除、坏索引合并与墓碑回滚与持久化过滤 persistableIds，13 例）、TombstoneStoreTest（墓碑损坏返回 null 并保留原文件、round-trip、磁盘为底 merge、remove 保留其他、加载清理 merge，6 例）。命令见 CONTRIBUTING.md。
+- JVM 单测 137 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段、代理对边界与 8K 单行扫描推进，36 例）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、加载门禁、脏标记代数、恢复对账、墓碑剔除、坏索引合并与墓碑回滚与持久化过滤 persistableIds，13 例）、TombstoneStoreTest（墓碑损坏返回 null 并保留原文件、round-trip、磁盘为底 merge、remove 保留其他、加载清理 merge，6 例）、ThemeContrastTest（六强调色日/夜小字与自定义极端色对比度、预设自映射、旧 skinSchema 迁移幂等，5 例）。命令见 CONTRIBUTING.md。
 - 本地协议联调：scripts/mock_sse_server.py 提供 normal / truncated / error_sse / 429 / 500 五种模式，默认 18080 端口；debug 构建加 -PapiOrigin 指向它。
 - 构建验证：gradle :app:compileDebugKotlin（日常）；release 构建、签名与 Baseline Profile 见 README.md。
 - CI：.github/workflows/ci.yml（GitHub Actions）依次跑 Kotlin 编译、JVM 单测与 scripts/mock_sse_server.py --selftest，环境为 JDK 17 / Gradle 8.9 / Android SDK 35。

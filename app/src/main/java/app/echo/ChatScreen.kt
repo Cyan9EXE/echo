@@ -202,7 +202,7 @@ internal fun ChatScreen(state: AppState, accent: Color) {
                 scale = .97f,
                 description = "去设置里填写 API Key",
             ) {
-                Text("去设置里填写 API Key", color = accent, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp))
+                Text("去设置里填写 API Key", color = C.accentText(accent), fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp))
             }
         }
         Composer(state, accent)
@@ -261,7 +261,7 @@ internal fun SummaryCard(state: AppState, s: Session, accent: Color) {
                     )
                 }
                 Pressable(onClick = { state.revive(s) }, description = "切回完整原文") {
-                    Text("切回完整原文", color = accent, fontSize = 11.sp, modifier = Modifier.padding(start = 10.dp, top = 2.dp, bottom = 4.dp))
+                    Text("切回完整原文", color = C.accentText(accent), fontSize = 11.sp, modifier = Modifier.padding(start = 10.dp, top = 2.dp, bottom = 4.dp))
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -274,7 +274,7 @@ internal fun SummaryCard(state: AppState, s: Session, accent: Color) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Pressable(onClick = { state.revive(s, "summary") }, description = "重新生成本机主题摘要") {
-                    Text("重新生成主题块", color = accent, fontSize = 10.sp, modifier = Modifier.padding(vertical = 4.dp))
+                    Text("重新生成主题块", color = C.accentText(accent), fontSize = 10.sp, modifier = Modifier.padding(vertical = 4.dp))
                 }
             } else if (!expanded) {
                 val first = blocks.first()
@@ -287,7 +287,7 @@ internal fun SummaryCard(state: AppState, s: Session, accent: Color) {
                 Pressable(onClick = { expanded = true }, description = "展开全部主题块") {
                     Text(
                         if (blockCount == 1) "展开主题块" else "展开全部 " + blockCount + " 个主题块",
-                        color = accent,
+                        color = C.accentText(accent),
                         fontSize = 10.sp,
                         modifier = Modifier.padding(vertical = 4.dp),
                     )
@@ -302,7 +302,7 @@ internal fun SummaryCard(state: AppState, s: Session, accent: Color) {
                 }
                 Spacer(Modifier.height(4.dp))
                 Pressable(onClick = { expanded = false }, description = "收起主题块") {
-                    Text("收起主题块", color = accent, fontSize = 10.sp, modifier = Modifier.padding(vertical = 4.dp))
+                    Text("收起主题块", color = C.accentText(accent), fontSize = 10.sp, modifier = Modifier.padding(vertical = 4.dp))
                 }
             }
             Spacer(Modifier.height(6.dp))
@@ -321,7 +321,7 @@ internal fun SummaryBlockView(state: AppState, session: Session, block: SummaryB
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(block.title, color = C.Ivory, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             Pressable(onClick = { showOriginal = !showOriginal }, description = if (showOriginal) "收起该主题的原文" else "查看该主题的原文") {
-                Text(if (showOriginal) "收起原文" else "查看原文", color = accent, fontSize = 10.sp, modifier = Modifier.padding(start = 8.dp, top = 3.dp, bottom = 3.dp))
+                Text(if (showOriginal) "收起原文" else "查看原文", color = C.accentText(accent), fontSize = 10.sp, modifier = Modifier.padding(start = 8.dp, top = 3.dp, bottom = 3.dp))
             }
         }
         block.bullets.forEach { bullet ->
@@ -384,7 +384,7 @@ internal fun RevivalBanner(state: AppState, s: Session, accent: Color) {
                     scale = .96f,
                     description = "完整原文复活",
                 ) {
-                    Text("完整原文复活", color = C.onAccent, fontSize = 12.sp, modifier = Modifier.background(accent, RoundedCornerShape(9.dp)).padding(horizontal = 14.dp, vertical = 7.dp))
+                    Text("完整原文复活", color = C.onAccent(accent), fontSize = 12.sp, modifier = Modifier.background(accent, RoundedCornerShape(9.dp)).padding(horizontal = 14.dp, vertical = 7.dp))
                 }
                 Spacer(Modifier.width(10.dp))
                 Pressable(
@@ -393,7 +393,7 @@ internal fun RevivalBanner(state: AppState, s: Session, accent: Color) {
                     scale = .96f,
                     description = "前部摘要 + 后部原文",
                 ) {
-                    Text("前部摘要 + 后部原文", color = accent, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp))
+                    Text("前部摘要 + 后部原文", color = C.accentText(accent), fontSize = 11.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp))
                 }
             }
             Spacer(Modifier.height(3.dp))

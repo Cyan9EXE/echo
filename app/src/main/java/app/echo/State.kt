@@ -97,11 +97,10 @@ class AppState(private val context: Context) {
      */
     private fun initialSkinIndex(): Int {
         val schema = prefs.getInt("skinSchema", 0)
-        var stored = prefs.getInt("skinIndex", 1)
-        if (schema < 1 && stored == 5) stored = C.skins.size
-        val valid = if (stored in 0..C.skins.size) stored else 1
-        if (schema < 1 || valid != stored) {
-            prefs.edit().putInt("skinIndex", valid).putInt("skinSchema", 1).apply()
+        val stored = prefs.getInt("skinIndex", 1)
+        val (valid, nextSchema) = migrateSkinIndex(schema, stored, C.skins.size)
+        if (nextSchema != schema || valid != stored) {
+            prefs.edit().putInt("skinIndex", valid).putInt("skinSchema", nextSchema).apply()
         }
         return valid
     }
@@ -2620,3 +2619,16 @@ private class CountingInputStream(private val inner: java.io.InputStream) : java
 
     override fun close() = inner.close()
 }
+
+/**
+ * 旧配色存档迁移的纯函数版本（JVM 可单测）：
+ * schema 0 的 skinIndex==5 表示旧自定义槽，V3 六色后槽位后移到 [skinCount]。
+ * 返回 (有效 skinIndex, 新 schema)；非法值回退雾蓝 1。
+ */
+internal fun migrateSkinIndex(schema: Int, stored: Int, skinCount: Int): Pair<Int, Int> {
+    var slot = stored
+    if (schema < 1 && slot == 5) slot = skinCount
+    val valid = if (slot in 0..skinCount) slot else 1
+    return valid to if (schema < 1) 1 else schema
+}
+
