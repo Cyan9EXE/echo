@@ -263,12 +263,13 @@ private fun PresetChip(
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(8.dp)
+    val card = C.previewVoid(preset.appearance)
     Box(
         modifier
             .height(30.dp)
             .clip(shape)
-            .background(C.previewVoid(preset.appearance))
-            .border(2.dp, if (selected) C.accentText(accent) else C.Hair, shape)
+            .background(card)
+            .border(2.dp, if (selected) C.accentOn(card, accent) else C.Hair, shape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .semantics { contentDescription = preset.label },
     ) {
@@ -452,20 +453,38 @@ private fun GradientSlider(
                 .pointerInput(widthPx, thumbPx) {
                     val usable = (widthPx - thumbPx).coerceAtLeast(1f)
                     fun at(x: Float): Float = ((x - thumbPx / 2f) / usable).coerceIn(0f, 1f)
-                    // 点击轨道直接跳转；按住拖动持续更新；抬指才提交。
+                    val slop = viewConfiguration.touchSlop
+                    // 垂直滚动优先：只有确认是水平拖动才改值；单击轨道仍直接跳转。
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        onChange(at(down.position.x))
+                        var dragging = false
+                        var cancelled = false
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (change.changedToUpIgnoreConsumed()) break
-                            if (change.positionChanged()) {
+                            if (change.changedToUpIgnoreConsumed()) {
+                                if (!cancelled) {
+                                    if (!dragging) onChange(at(change.position.x))
+                                    onCommit()
+                                }
+                                break
+                            }
+                            if (!change.positionChanged()) continue
+                            val dx = change.position.x - down.position.x
+                            val dy = change.position.y - down.position.y
+                            if (dragging) {
                                 onChange(at(change.position.x))
                                 change.consume()
+                            } else if (kotlin.math.abs(dx) > slop) {
+                                dragging = true
+                                onChange(at(change.position.x))
+                                change.consume()
+                            } else if (kotlin.math.abs(dy) > slop) {
+                                // 纵向手势交给外层滚动，不提交、不改值。
+                                cancelled = true
+                                break
                             }
                         }
-                        onCommit()
                     }
                 },
             contentAlignment = Alignment.CenterStart,

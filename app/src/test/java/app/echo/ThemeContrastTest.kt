@@ -119,12 +119,9 @@ class ThemeContrastTest {
         }
     }
 
-    private fun blendOver(foreground: Color, background: Color, alpha: Float): Color = Color(
-        red = foreground.red * alpha + background.red * (1f - alpha),
-        green = foreground.green * alpha + background.green * (1f - alpha),
-        blue = foreground.blue * alpha + background.blue * (1f - alpha),
-        alpha = 1f,
-    )
+    /** 与生产共用同一份 sRGB 叠底，避免测试与真实绘制出现两套算法。 */
+    private fun tint(base: Color, overlay: Color, alpha: Float = .16f): Color =
+        C.blendSrgb(base, overlay, alpha)
 
     @Test
     fun selectedBorderOnTintedSurfacesMeetsNonTextContrast() {
@@ -135,9 +132,8 @@ class ThemeContrastTest {
                 listOf(Color(0xFF808080), Color(0xFF737373), Color(0xFF6F6F6F))
             accents.forEach { accent ->
                 val border = C.accentText(accent)
-                val tint = accent.copy(alpha = .16f)
                 listOf(C.Void, C.Panel, C.PanelHigh).forEachIndexed { index, base ->
-                    val bg = blendOver(tint, base, .16f)
+                    val bg = tint(base, accent)
                     val value = contrast(border, bg)
                     assertTrue(
                         "$tag tint-border base#$index(${hex(base)}) 对比度 $value < 3.0 " +
@@ -145,6 +141,108 @@ class ThemeContrastTest {
                         value >= 3f,
                     )
                 }
+            }
+        }
+    }
+
+    private fun presetAccents(day: Boolean): List<Color> =
+        C.skins.map { if (day) it.day else it.night }
+
+    /** 固定锚点 + 固定种子随机色：覆盖纯色、灰阶与极端饱和色，避免只测预设。 */
+    private fun stressAccents(): List<Color> {
+        val anchors = listOf(
+            Color(0xFFFD01FF.toInt()), Color(0xFFFF0000.toInt()), Color(0xFF00FF00.toInt()),
+            Color(0xFF0000FF.toInt()), Color(0xFF808080.toInt()), Color(0xFF737373.toInt()),
+            Color(0xFF6F6F6F.toInt()), Color(0xFF000000.toInt()), Color(0xFFFFFFFF.toInt()),
+        )
+        val random = java.util.Random(20261124L)
+        return anchors + List(160) { Color(0xFF000000.toInt() or random.nextInt(0x1000000)) }
+    }
+
+    @Test
+    fun selectedPillTextMeetsContrastOnActualTintedSurface() {
+        listOf(true, false).forEach { day ->
+            C.initDay(day)
+            val tag = if (day) "day" else "night"
+            (presetAccents(day) + stressAccents()).forEach { accent ->
+                val text = C.accentText(accent)
+                listOf(C.Void, C.Panel, C.PanelHigh).forEachIndexed { index, base ->
+                    assertContrast(
+                        "$tag pill-text base#$index accent=${hex(accent)}",
+                        text, listOf(tint(base, accent)), 4.5f,
+                    )
+                }
+                assertContrast(
+                    "$tag pill-text actual-panel accent=${hex(accent)}",
+                    text, listOf(tint(C.Panel, accent)), 4.7f,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun helpDialogCheckboxMeetsContrastOnTintedPanel() {
+        listOf(true, false).forEach { day ->
+            C.initDay(day)
+            val tag = if (day) "day" else "night"
+            (presetAccents(day) + stressAccents()).forEach { accent ->
+                val mark = C.accentText(accent)
+                // 勾选框底：accentText 以 16% 叠在 Panel 卡片上。
+                assertContrast(
+                    "$tag help-check accent=${hex(accent)}",
+                    mark, listOf(tint(C.Panel, mark)), 3f,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun presetChipSelectedBorderMeetsNonTextContrast() {
+        val looks = listOf(C.Look.PAPER, C.Look.INK, C.Look.WARM, C.Look.GREEN)
+        listOf(true, false).forEach { day ->
+            C.initDay(day)
+            val tag = if (day) "day" else "night"
+            (presetAccents(day) + listOf(Color(0xFF808080.toInt()), Color(0xFFFD01FF.toInt())))
+                .forEach { accent ->
+                    looks.forEach { look ->
+                        val card = C.previewVoid(look)
+                        assertContrast(
+                            "$tag preset-border ${look.zh} accent=${hex(accent)}",
+                            C.accentOn(card, accent), listOf(card), 3f,
+                        )
+                    }
+                }
+        }
+    }
+
+    @Test
+    fun themeSwatchSelectedLabelAndBorderMeetContrast() {
+        listOf(true, false).forEach { day ->
+            C.initDay(day)
+            C.skins.forEach { skin ->
+                val accent = if (day) skin.day else skin.night
+                assertContrast("swatch-label ${skin.label}", C.Ivory, listOf(C.PanelHigh), 4.5f)
+                assertContrast(
+                    "swatch-border ${skin.label}",
+                    C.accentText(accent), listOf(C.PanelHigh), 3f,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun normalizedCustomAccentKeepsSelectedTextReadable() {
+        listOf(true, false).forEach { day ->
+            C.initDay(day)
+            val tag = if (day) "day" else "night"
+            for (level in 0..0xFF step 5) {
+                val raw = Color(0xFF000000.toInt() or (level shl 16) or (level shl 8) or level)
+                val fill = C.readableAccent(raw)
+                val text = C.accentText(fill)
+                assertContrast(
+                    "$tag normalized grey=$level",
+                    text, listOf(tint(C.Panel, fill)), 4.5f,
+                )
             }
         }
     }

@@ -26,6 +26,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 
+/** 自定义强调色的归一写入规则版本；改动可读性算法时递增以触发一次显式迁移。 */
+private const val CUSTOM_ACCENT_SCHEMA = 1
+
 class AppState(private val context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("continue-native", Context.MODE_PRIVATE)
@@ -117,9 +120,15 @@ class AppState(private val context: Context) {
      */
     private fun initialCustomAccent(): Int {
         val stored = prefs.getInt("customAccent", 0xFF759ECC.toInt())
+        val schema = prefs.getInt("customAccentSchema", 0)
         val readable = C.readableAccent(Color(stored)).toArgb()
-        if (readable != stored) {
-            prefs.edit().putInt("customAccent", readable).apply()
+        // 显式迁移：schema 0 表示旧数据，统一按当前可读性算法归一一次并打标；
+        // 之后只在用户改色导致重新归一时才再写入，避免每次启动反复解释同一份输入。
+        if (schema < CUSTOM_ACCENT_SCHEMA || readable != stored) {
+            prefs.edit()
+                .putInt("customAccent", readable)
+                .putInt("customAccentSchema", CUSTOM_ACCENT_SCHEMA)
+                .apply()
         }
         return readable
     }

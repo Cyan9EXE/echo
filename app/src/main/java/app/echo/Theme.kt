@@ -25,9 +25,9 @@ object C {
     var themeProgress by mutableFloatStateOf(0f)
 
     val skins = listOf(
-        Skin("沙金", Color(0xFFE2C070), Color(0xFFC9A227), Color(0xFF6F5A0F)),
-        Skin("雾蓝", Color(0xFF759ECC), Color(0xFF5E86B8), Color(0xFF3D5D82)),
-        Skin("黛青", Color(0xFF60A6A5), Color(0xFF3F8F8C), Color(0xFF2E6360)),
+        Skin("沙金", Color(0xFFE2C070), Color(0xFFC9A227), Color(0xFF66520D)),
+        Skin("雾蓝", Color(0xFF759ECC), Color(0xFF5E86B8), Color(0xFF375577)),
+        Skin("黛青", Color(0xFF60A6A5), Color(0xFF3F8F8C), Color(0xFF2A5B58)),
         Skin("陶土", Color(0xFFD1877B), Color(0xFFC58573), Color(0xFF85473C)),
         Skin("灰紫", Color(0xFFB38DBE), Color(0xFFA987B8), Color(0xFF6B4E75)),
         Skin("靛蓝", Color(0xFFA9B4E8), Color(0xFF6E7BE0), Color(0xFF434B8F)),
@@ -169,11 +169,50 @@ object C {
     }
 
     /**
+     * 强调色作非文本前景（选中边框、指示点）时的颜色：在给定底色上保证 target 对比度。
+     * 预设芯片的底色随外观变化（纸、墨、暖黄、淡绿），同一个 accentText 在墨黑卡上会失读，
+     * 所以这里按实际底色决定是保留原色、压深，还是朝白提亮。
+     */
+    internal fun accentOn(background: Color, accent: Color, target: Float = 3f): Color {
+        if (contrastOn(accent, background) >= target) return accent
+        val toward = if (background.luminance() < 0.5f) Color.White else Color.Black
+        var c = accent
+        var guard = 0
+        while (contrastOn(c, background) < target && guard++ < 32) {
+            c = mixOklab(c, toward, 0.06f)
+        }
+        return c
+    }
+
+    /**
      * 小字可能落到的全部底色：卡片、高亮卡片，以及 16% 强调色叠在卡片上的选中态。
      * 取其中最坏的一档做校验，避免只对着 Void 调深浅。
      */
-    internal fun textBackgrounds(accent: Color): List<Color> =
-        listOf(Void, Panel, PanelHigh, mixOklab(Panel, accent, 0.16f))
+    internal fun textBackgrounds(accent: Color): List<Color> = buildList {
+        add(Void)
+        add(Panel)
+        add(PanelHigh)
+        // 旧 OKLab 近似，保留以兼容既有判定的历史结论。
+        add(mixOklab(Panel, accent, 0.16f))
+        // 实际绘制：accent 以 16% alpha 叠在三级底色上（sRGB alpha 合成）。
+        add(blendSrgb(Void, accent, 0.16f))
+        add(blendSrgb(Panel, accent, 0.16f))
+        add(blendSrgb(PanelHigh, accent, 0.16f))
+    }.distinct()
+
+    /**
+     * 与 Compose 实际绘制一致的 sRGB alpha 合成：overlay 以 alpha 叠在 base 上。
+     * 测试与生产共用这一份实现，避免两套叠底算法给出不同结论。
+     */
+    internal fun blendSrgb(base: Color, overlay: Color, alpha: Float): Color {
+        val a = alpha.coerceIn(0f, 1f)
+        return Color(
+            red = overlay.red * a + base.red * (1f - a),
+            green = overlay.green * a + base.green * (1f - a),
+            blue = overlay.blue * a + base.blue * (1f - a),
+            alpha = 1f,
+        )
+    }
 
     private fun minContrastOn(c: Color, backgrounds: List<Color>): Float =
         backgrounds.minOf { contrastOn(c, it) }
