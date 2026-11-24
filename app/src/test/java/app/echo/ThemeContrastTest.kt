@@ -197,7 +197,7 @@ class ThemeContrastTest {
     }
 
     @Test
-    fun presetChipSelectedBorderMeetsNonTextContrast() {
+    fun presetPreviewSelectedBorderMeetsNonTextContrast() {
         val looks = listOf(C.Look.PAPER, C.Look.INK, C.Look.WARM, C.Look.GREEN)
         listOf(true, false).forEach { day ->
             C.initDay(day)
@@ -216,15 +216,15 @@ class ThemeContrastTest {
     }
 
     @Test
-    fun themeSwatchSelectedLabelAndBorderMeetContrast() {
+    fun presetPreviewSelectedLabelAndBorderMeetContrast() {
         listOf(true, false).forEach { day ->
             C.initDay(day)
             C.skins.forEach { skin ->
                 val accent = if (day) skin.day else skin.night
-                assertContrast("swatch-label ${skin.label}", C.Ivory, listOf(C.PanelHigh), 4.5f)
+                assertContrast("preset-label ${skin.label}", C.Ivory, listOf(C.Void), 4.5f)
                 assertContrast(
-                    "swatch-border ${skin.label}",
-                    C.accentText(accent), listOf(C.PanelHigh), 3f,
+                    "preset-border ${skin.label}",
+                    C.accentText(accent), listOf(C.Void), 3f,
                 )
             }
         }

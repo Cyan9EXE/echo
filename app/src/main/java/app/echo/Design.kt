@@ -125,12 +125,14 @@ internal fun EchoMark(
             alpha.snapTo(1f)
             return@LaunchedEffect
         }
-        // 入场只呼吸两轮，之后保持常亮：无限动画会被读成 loading，
-        // 也阻止页面进入 idle（R4-P2-2）。
-        repeat(2) {
-            delay(1100)
-            alpha.animateTo(.10f, tween(durationMillis = 120, easing = FastOutSlowInEasing))
-            delay(660)
+        // 按 caret 节奏慢闪：亮 750ms、灭 600ms，两端各 120ms 淡变，
+        // 周期约 1.59s。用户明确要求它变慢（m34454）；这是光标语义，
+        // 停顿足够长，不会像 loading 或进度动画。
+        while (true) {
+            alpha.snapTo(1f)
+            delay(750)
+            alpha.animateTo(.06f, tween(durationMillis = 120, easing = FastOutSlowInEasing))
+            delay(600)
             alpha.animateTo(1f, tween(durationMillis = 120, easing = FastOutSlowInEasing))
         }
     }

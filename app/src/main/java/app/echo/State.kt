@@ -361,12 +361,6 @@ class AppState(private val context: Context) {
     /** 只切强调色，外观保持不变。 */
     fun applyAccent(index: Int) = updateSkin(index)
 
-    /** 一次落定「外观 × 强调色」组合。 */
-    fun applyPreset(preset: Preset) {
-        applyAppearance(preset.appearance)
-        updateSkin(preset.accent)
-    }
-
     /** 日间自定义底色：传入 HSL 选出的 ARGB，立即生效并持久化。 */
     fun applyCustomTheme(argb: Int) {
         captureVoid()

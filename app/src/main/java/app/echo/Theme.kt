@@ -102,12 +102,6 @@ object C {
         else -> Color(0xFFF4F2ED)
     }
 
-    fun previewAccent(look: Look, index: Int): Color {
-        val i = index.coerceIn(0, skins.lastIndex)
-        if (look == Look.INK) return Color(ACCENT_NIGHT[i])
-        return Color(ACCENT_DAY[look.ordinal.coerceIn(0, ACCENT_DAY.lastIndex)][i])
-    }
-
     fun accentAt(position: Float): Color {
         val last = skins.lastIndex
         val p = position.coerceIn(0f, last.toFloat())
@@ -285,19 +279,6 @@ object C {
 
     val Scrim get() = scrimRamp.at(themeProgress)
 
-    val ACCENT_ID = arrayOf("sand", "mist", "slate", "clay", "mauve", "indigo")
-
-    /** 24 个预设：4 外观 × 6 强调色。外观决定底色，强调色只决定 accent。 */
-    val presets: List<Preset> = listOf(Look.PAPER, Look.INK, Look.WARM, Look.GREEN).flatMap { look ->
-        skins.mapIndexed { i, s ->
-            Preset(
-                id = look.id + "." + ACCENT_ID[i],
-                label = look.zh + " · " + s.label,
-                appearance = look,
-                accent = i,
-            )
-        }
-    }
 }
 
 /**
@@ -308,8 +289,6 @@ object C {
 data class Skin(val label: String, val night: Color, val day: Color, val dayText: Color)
 
 data class ThemeMark(val top: Color, val bottom: Color)
-
-data class Preset(val id: String, val label: String, val appearance: C.Look, val accent: Int)
 
 private val INK_ON_ACCENT = Color(0xFF0C0A07)
 private val PAPER_ON_ACCENT = Color(0xFFF3EFE7)

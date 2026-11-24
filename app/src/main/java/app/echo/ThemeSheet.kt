@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -56,7 +57,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
 import kotlin.math.roundToInt
 
-// 主题面板：外观（日间 / 夜间 / 暖黄 / 淡绿 / 自选）+ 预设矩阵（4 × 6）+ 六色强调与两个 HSL 编辑器。
+// 主题面板：外观（日间 / 夜间 / 暖黄 / 淡绿 / 自选）+ 六个强调色的真实界面预览 + 自定义强调色（HSL）。
 @Composable
 internal fun ThemeSheet(state: AppState, accent: Color) {
     Surface(
@@ -127,28 +128,16 @@ internal fun ThemeSheet(state: AppState, accent: Color) {
                 }
 
                 SheetSection("预设")
-                PresetGrid(state, accent)
+                PresetGrid(state)
                 Text(
-                    "预设只是「外观 × 强调色」的组合，可以交叉使用，例如暖黄底配雾蓝强调。",
+                    "按当前外观实时渲染：每张卡就是一块缩小的欢迎页，点卡即切换强调色。",
                     color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
                 )
 
-                SheetSection("强调色")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    C.skins.forEachIndexed { index, _ ->
-                        ThemeSwatch(
-                            modifier = Modifier.weight(1f),
-                            label = C.skinLabel(index),
-                            mark = C.mark(index, C.accentAt(index.toFloat())),
-                            accent = C.accentAt(index.toFloat()),
-                            selected = !state.customMode && state.skinIndex == index,
-                            onClick = { state.applyAccent(index) },
-                        )
-                    }
-                }
+                SheetSection("自定义强调色")
                 CustomAccentRow(state, accent)
                 Text(
-                    "色块上方是底色、下方是强调色；强调色负责填充，日间小字另取深一档，填充上的字取近黑。靛蓝补回蓝青色位，六色在四档外观下仍可分辨。",
+                    "六个预设已经放进上面的真实界面预览；想要列表外的颜色，用下面这条自定义。强调色负责填充，日间小字另取深一档，填充上的字取近黑。",
                     color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
                 )
 
@@ -217,37 +206,25 @@ private fun AppearanceOption(
     }
 }
 
-// 4 行外观 × 6 列强调色的矩阵：色块是底色，右下角小点是该组合的强调色。
+// 六个强调色的真实界面预览：每张卡是缩小的欢迎页，按当前外观实时渲染。
 @Composable
-private fun PresetGrid(state: AppState, accent: Color) {
-    val looks = listOf(C.Look.PAPER, C.Look.INK, C.Look.WARM, C.Look.GREEN)
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().padding(bottom = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Spacer(Modifier.width(30.dp))
-            C.skins.forEach { skin ->
-                Text(
-                    skin.label, color = C.Muted, fontSize = 8.sp,
-                    textAlign = TextAlign.Center, modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        looks.forEach { look ->
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 5.dp),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(look.zh, color = C.Muted, fontSize = 8.sp, modifier = Modifier.width(30.dp))
-                C.presets.filter { it.appearance == look }.forEach { preset ->
-                    val selected = !state.customThemeOn && !state.customMode &&
-                        C.look == preset.appearance && state.skinIndex == preset.accent
-                    PresetChip(Modifier.weight(1f), preset, selected, accent) {
-                        state.applyPreset(preset)
+private fun PresetGrid(state: AppState) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val columns = if (maxWidth >= 420.dp) 3 else 2
+        val gap = 10.dp
+        Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+            C.skins.indices.chunked(columns).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    row.forEach { index ->
+                        PresetPreview(
+                            modifier = Modifier.weight(1f),
+                            index = index,
+                            accent = C.presetAccent(index),
+                            selected = !state.customMode && state.skinIndex == index,
+                            onClick = { state.applyAccent(index) },
+                        )
                     }
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
@@ -255,36 +232,9 @@ private fun PresetGrid(state: AppState, accent: Color) {
 }
 
 @Composable
-private fun PresetChip(
+private fun PresetPreview(
     modifier: Modifier,
-    preset: Preset,
-    selected: Boolean,
-    accent: Color,
-    onClick: () -> Unit,
-) {
-    val shape = RoundedCornerShape(8.dp)
-    val card = C.previewVoid(preset.appearance)
-    Box(
-        modifier
-            .height(30.dp)
-            .clip(shape)
-            .background(card)
-            .border(2.dp, if (selected) C.accentOn(card, accent) else C.Hair, shape)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .semantics { contentDescription = preset.label },
-    ) {
-        Box(
-            Modifier.align(Alignment.BottomEnd).padding(4.dp).size(9.dp).clip(CircleShape)
-                .background(C.previewAccent(preset.appearance, preset.accent)),
-        )
-    }
-}
-
-@Composable
-private fun ThemeSwatch(
-    modifier: Modifier = Modifier,
-    label: String,
-    mark: ThemeMark,
+    index: Int,
     accent: Color,
     selected: Boolean,
     onClick: () -> Unit,
@@ -292,18 +242,51 @@ private fun ThemeSwatch(
     val shape = RoundedCornerShape(14.dp)
     Column(
         modifier
-            .heightIn(min = 72.dp)
+            .height(112.dp)
             .clip(shape)
-            .background(if (selected) C.PanelHigh else C.Panel)
-            .border(2.dp, if (selected) C.accentText(accent) else C.Hair, shape)
+            .background(C.Void)
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) C.accentOn(C.Void, accent) else C.Hair,
+                shape = shape,
+            )
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .semantics { contentDescription = label }
-            .padding(vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .semantics { contentDescription = "预设 ${C.skinLabel(index)}" }
+            .padding(9.dp),
     ) {
-        ThemeMarkView(mark, 24.dp)
-        Spacer(Modifier.height(5.dp))
-        Text(label, color = if (selected) C.Ivory else C.Muted, fontSize = 10.sp)
+        Column(
+            Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(8.dp))
+                .background(C.Panel).padding(8.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Echo", color = C.Ivory, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.weight(1f))
+                Box(Modifier.size(7.dp).clip(CircleShape).background(accent))
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "欢迎回来，随时续上。",
+                color = C.Ivory, fontSize = 9.sp, maxLines = 1, modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier.fillMaxWidth().height(20.dp).clip(RoundedCornerShape(5.dp))
+                    .background(C.PanelHigh),
+            )
+            Spacer(Modifier.weight(1f))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("请输入消息", color = C.Muted, fontSize = 7.sp, maxLines = 1)
+                Spacer(Modifier.weight(1f))
+                Box(Modifier.size(8.dp).clip(CircleShape).background(accent))
+            }
+        }
+        Spacer(Modifier.height(7.dp))
+        Text(
+            C.skinLabel(index),
+            color = if (selected) C.Ivory else C.Muted,
+            fontSize = 10.sp,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+        )
     }
 }
 

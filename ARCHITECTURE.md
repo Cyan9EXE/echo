@@ -24,9 +24,9 @@ Drawer.kt（698） | 会话抽屉 | 标题/联想/内容搜索、对话保留面
 SettingsScreen.kt（603） | 设置与关于 | Key 显示保护、模型、最大输出、系统提示词、语音、外观、导入
 HelpDialogs.kt（517） | 答疑与引导 | 12 条 FAQ、4 级导入向导、通用计费确认
 UsageSheet.kt（224） | 用量与费用 | 官方余额、TTS/ASR 账本、生成花费
-State.kt（2609） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
+State.kt（2653） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
 SessionPersistence.kt（83） | 落盘策略 | 索引必写/节流、加载门禁、脏标记代数、恢复对账、坏索引合并（纯 JVM 可单测）
-TombstoneStore.kt（72） | 墓碑存储 | 损坏返回 null 且保留原文件、磁盘为底 merge、原子写（纯 JVM 可单测）
+TombstoneStore.kt（73） | 墓碑存储 | 损坏返回 null 且保留原文件、磁盘为底 merge、原子写（纯 JVM 可单测）
 Models.kt（220） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
 Api.kt（268） | 网络与流式 | 请求体、SSE 读取循环、错误映射
 Sse.kt（73） | 协议解析 | 纯函数 parse(event, json)，可 JVM 单测
@@ -35,16 +35,16 @@ Billing.kt（243） | 计费 | 价格常量、用量账本、余额接口
 Speech.kt（742） | 语音 | TTS 状态机与流式播放、ASR 录音与识别
 TtsAudio.kt（165） | 音频输出层 | 半带 FIR 升采样、AudioTrack 封装、播放尾等待（可 JVM 单测）
 Export.kt（580） | 导出引擎与面板 | 单会话 Markdown / 全会话 ZIP、会话页导出面板；已接入
-Design.kt（438） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:115）
-Theme.kt（371） | 主题 | 外观、强调色、Oklab 色阶与过渡
-ThemeSheet.kt（451） | 主题面板 | 预设、自定义底色、HSL 调色
+Design.kt（440） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:115）
+Theme.kt（485） | 主题 | 外观、强调色、Oklab 色阶与过渡
+ThemeSheet.kt（491） | 主题面板 | 预设、自定义底色、HSL 调色
 Glyphs.kt（300） | 图标字形 | 纯 Compose 绘制，不依赖图片资源
 Markdown.kt（1640） | Markdown / LaTeX 渲染 | 自研子集解析 + Compose 渲染、代码块与公式布局（流式稳定段增量解析、未闭合尾行按纯文本）
 Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（24） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 29 个 Kotlin 文件、12,516 行（随提交变化）。
+合计 29 个 Kotlin 文件、12,474 行（随提交变化）。
 
 ## 3. 状态与持久化
 
@@ -132,13 +132,13 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 ## 10. 设计系统与品牌层
 
 - Design.kt 提供设计 token、通用组件与 EchoMark 品牌标记；Glyphs.kt 用 Compose 画图标字形，不依赖位图。
-- Theme.kt：外观 Look = PAPER（日间）/ INK（夜间）/ WARM（暖黄）/ GREEN（淡绿）/ CUSTOM（日间自定义底色）；6 种强调色（沙金/雾蓝/黛青/陶土/灰紫/靛蓝）× 4 外观 = 24 个预设；夜间底色 #050608，日间 #F4F2ED；暖黄与淡绿只在日间、由 eyeMode 控制。强调色拆三角色：填充用 accent（日/夜各一值），日间小字用 accentText（命中预设时取 dayText，否则同时对照纸白 / 面板 / 面板高亮 / 16% 强调色叠底，在最坏底色上自动加深到 ≥4.7），填充上的字用 onAccent（在近黑与纸白中取对 accent 对比度更高者）；夜间 accent 主要承担填充，小字同样经 accentText 按最坏底色校验。自定义强调色在写入前先过 readableAccent：若 onAccent 对原色已达 4.7 则原样保留，否则按 ink / paper 哪侧更优，向黑或白逐 6% 迭代压深 / 提亮（上限 32 步），中灰也不会出现“黑字压不住、白字读不出”的两难；选中边框与勾选统一用 accentText，非文本对比度 ≥ 3.0。
+- Theme.kt：外观 Look = PAPER（日间）/ INK（夜间）/ WARM（暖黄）/ GREEN（淡绿）/ CUSTOM（日间自定义底色）；6 种强调色（沙金/雾蓝/黛青/陶土/灰紫/靛蓝）以六张真实欢迎页预览呈现，四档外观下实时重绘；夜间底色 #050608，日间 #F4F2ED；暖黄与淡绿只在日间、由 eyeMode 控制。强调色拆三角色：填充用 accent（日/夜各一值），日间小字用 accentText（命中预设时取 dayText，否则同时对照纸白 / 面板 / 面板高亮 / 16% 强调色叠底，在最坏底色上自动加深到 ≥4.7），填充上的字用 onAccent（在近黑与纸白中取对 accent 对比度更高者）；夜间 accent 主要承担填充，小字同样经 accentText 按最坏底色校验。自定义强调色在写入前先过 readableAccent：若 onAccent 对原色已达 4.7 则原样保留，否则按 ink / paper 哪侧更优，向黑或白逐 6% 迭代压深 / 提亮（上限 32 步），中灰也不会出现“黑字压不住、白字读不出”的两难；选中边框与勾选统一用 accentText，非文本对比度 ≥ 3.0。
 - Android launcher 图标在 app/src/main/res/mipmap-*/ic_launcher* 与 adaptive 资源里，当前是蓝白命令提示符（1.6:1 圆角瓦片，提交 ccdb156）；应用内 EchoMark 与 launcher mark 是两套绘制，需保持形状语言同源。
 - 文案语气：短句、克制、不带官方背书；欢迎页「欢迎回来，随时续上。」，关于页 slogan「把没说完的话，接回来。」，输入区页脚「内容由 AI 生成，请仔细甄别 · 数据只保存在本机」。
 
 ## 11. 测试与验证
 
-- JVM 单测 146 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段、代理对边界与 8K 单行扫描推进，36 例）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、加载门禁、脏标记代数、恢复对账、墓碑剔除、坏索引合并与墓碑回滚与持久化过滤 persistableIds，13 例）、TombstoneStoreTest（墓碑损坏返回 null 并保留原文件、round-trip、磁盘为底 merge、remove 保留其他、加载清理 merge，6 例）、ThemeContrastTest（六强调色日/夜小字与自定义极端色对比度均 ≥4.7、任意灰阶经 readableAccent 归一后填充字仍 ≥4.7、预设色不被改写、选中 pill 文字、HelpDialogs 勾选、PresetChip 边框按卡底取前景、Swatch 标签与边框、预设自映射、旧 skinSchema 迁移幂等、16% 强调色叠底与选中态非文本 ≥3.0，14 例）。命令见 CONTRIBUTING.md。
+- JVM 单测 146 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段、代理对边界与 8K 单行扫描推进，36 例）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、加载门禁、脏标记代数、恢复对账、墓碑剔除、坏索引合并与墓碑回滚与持久化过滤 persistableIds，13 例）、TombstoneStoreTest（墓碑损坏返回 null 并保留原文件、round-trip、磁盘为底 merge、remove 保留其他、加载清理 merge，6 例）、ThemeContrastTest（六强调色日/夜小字与自定义极端色对比度均 ≥4.7、任意灰阶经 readableAccent 归一后填充字仍 ≥4.7、预设色不被改写、选中 pill 文字、HelpDialogs 勾选、预设预览卡边框按卡底取前景、选中标签与边框、预设自映射、旧 skinSchema 迁移幂等、16% 强调色叠底与选中态非文本 ≥3.0，14 例）。命令见 CONTRIBUTING.md。
 - 本地协议联调：scripts/mock_sse_server.py 提供 normal / truncated / error_sse / 429 / 500 五种模式，默认 18080 端口；debug 构建加 -PapiOrigin 指向它。
 - 构建验证：gradle :app:compileDebugKotlin（日常）；release 构建、签名与 Baseline Profile 见 README.md。
 - CI：.github/workflows/ci.yml（GitHub Actions）依次跑 Kotlin 编译、JVM 单测与 scripts/mock_sse_server.py --selftest，环境为 JDK 17 / Gradle 8.9 / Android SDK 35。
