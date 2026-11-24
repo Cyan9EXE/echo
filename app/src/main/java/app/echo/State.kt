@@ -91,11 +91,24 @@ class AppState(private val context: Context) {
         private set
     var systemPrompt by mutableStateOf(prefs.getString("systemPrompt", "").orEmpty())
         private set
+    /**
+     * 旧 5 色存档（skinSchema 0）里 skinIndex==5 表示「自定义色」槽位；
+     * V3 新增靛蓝后预设占 0..5，自定义槽位后移到 6，因此这里按 schema 迁移一次。
+     */
+    private fun initialSkinIndex(): Int {
+        val schema = prefs.getInt("skinSchema", 0)
+        var stored = prefs.getInt("skinIndex", 1)
+        if (schema < 1 && stored == 5) stored = C.skins.size
+        val valid = if (stored in 0..C.skins.size) stored else 1
+        if (schema < 1 || valid != stored) {
+            prefs.edit().putInt("skinIndex", valid).putInt("skinSchema", 1).apply()
+        }
+        return valid
+    }
+
     // 0..C.skins.lastIndex = preset skin, C.skins.size = custom accent colour.
-    // V3：槽位顺序不变（0 金→沙金 … 4 白→灰紫），旧整数直接沿用；缺省/非法值回退雾蓝（1）。
-    var skinIndex by mutableStateOf(
-        prefs.getInt("skinIndex", 1).let { if (it in 0..C.skins.size) it else 1 },
-    )
+    // 槽位顺序不变（0 沙金 … 4 灰紫，5 靛蓝）；缺省/非法值回退雾蓝（1）。
+    var skinIndex by mutableStateOf(initialSkinIndex())
         private set
     var customAccent by mutableStateOf(prefs.getInt("customAccent", 0xFF759ECC.toInt()))
         private set
@@ -279,7 +292,7 @@ class AppState(private val context: Context) {
         prefs.edit().putString("systemPrompt", systemPrompt).apply()
     }
 
-    /** 自定义强调色已启用：skinIndex 指向 5 个预设之后的第六格。 */
+    /** 自定义强调色已启用：skinIndex 指向六个预设之后的第七格。 */
     val customMode: Boolean get() = skinIndex > C.skins.lastIndex
 
     /** 自定义底色已启用且处于日间。 */

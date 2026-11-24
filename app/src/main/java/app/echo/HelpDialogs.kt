@@ -111,7 +111,7 @@ internal fun BillingConfirm(
                             .clickable { onConfirm(skip) }
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
-                        Text(confirmLabel, color = C.Void, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(confirmLabel, color = C.onAccent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -266,7 +266,7 @@ internal fun ImportGuide(
                                         .clickable(onClick = onPick)
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                 ) {
-                                    Text("去选择", color = C.Void, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("去选择", color = C.onAccent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
@@ -341,7 +341,7 @@ internal fun ImportGuide(
                                         .clickable { copied = false; level = 3 }
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                 ) {
-                                    Text("我还没懂", color = C.Void, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("我还没懂", color = C.onAccent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
@@ -406,7 +406,7 @@ internal fun ImportGuide(
                                         .clickable(onClick = onPick)
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                 ) {
-                                    Text("去选择", color = C.Void, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("去选择", color = C.onAccent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }

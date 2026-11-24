@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
 import kotlin.math.roundToInt
 
-// 主题面板：外观（日间 / 夜间 / 暖黄 / 淡绿 / 自选）+ 预设矩阵（4 × 5）+ 强调色与两个 HSL 编辑器。
+// 主题面板：外观（日间 / 夜间 / 暖黄 / 淡绿 / 自选）+ 预设矩阵（4 × 6）+ 六色强调与两个 HSL 编辑器。
 @Composable
 internal fun ThemeSheet(state: AppState, accent: Color) {
     Surface(
@@ -124,12 +124,12 @@ internal fun ThemeSheet(state: AppState, accent: Color) {
                 )
 
                 SheetSection("强调色")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     C.skins.forEachIndexed { index, _ ->
                         ThemeSwatch(
                             modifier = Modifier.weight(1f),
                             label = C.skinLabel(index),
-                            mark = C.mark(index, Color.Transparent, C.accentAt(index.toFloat())),
+                            mark = C.mark(index, C.accentAt(index.toFloat())),
                             accent = C.accentAt(index.toFloat()),
                             selected = !state.customMode && state.skinIndex == index,
                             onClick = { state.applyAccent(index) },
@@ -138,7 +138,7 @@ internal fun ThemeSheet(state: AppState, accent: Color) {
                 }
                 CustomAccentRow(state, accent)
                 Text(
-                    "色块上方是底色、下方是主题色；灰紫承接原来的中性位，夜间更亮、日间更沉。",
+                    "色块上方是底色、下方是强调色；强调色负责填充，日间小字另取深一档，填充上的字取近黑。靛蓝补回蓝青色位，六色在四档外观下仍可分辨。",
                     color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
                 )
 
@@ -207,31 +207,31 @@ private fun AppearanceOption(
     }
 }
 
-// 4 行外观 × 5 列强调色的矩阵：色块是底色，右下角小点是该组合的强调色。
+// 4 行外观 × 6 列强调色的矩阵：色块是底色，右下角小点是该组合的强调色。
 @Composable
 private fun PresetGrid(state: AppState, accent: Color) {
     val looks = listOf(C.Look.PAPER, C.Look.INK, C.Look.WARM, C.Look.GREEN)
     Column(Modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().padding(bottom = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier.fillMaxWidth().padding(bottom = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Spacer(Modifier.width(32.dp))
+            Spacer(Modifier.width(30.dp))
             C.skins.forEach { skin ->
                 Text(
-                    skin.label, color = C.Muted, fontSize = 9.sp,
+                    skin.label, color = C.Muted, fontSize = 8.sp,
                     textAlign = TextAlign.Center, modifier = Modifier.weight(1f),
                 )
             }
         }
         looks.forEach { look ->
             Row(
-                Modifier.fillMaxWidth().padding(bottom = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Modifier.fillMaxWidth().padding(bottom = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(look.zh, color = C.Muted, fontSize = 9.sp, modifier = Modifier.width(32.dp))
+                Text(look.zh, color = C.Muted, fontSize = 8.sp, modifier = Modifier.width(30.dp))
                 C.presets.filter { it.appearance == look }.forEach { preset ->
                     val selected = !state.customThemeOn && !state.customMode &&
                         C.look == preset.appearance && state.skinIndex == preset.accent
@@ -280,17 +280,17 @@ private fun ThemeSwatch(
     val shape = RoundedCornerShape(14.dp)
     Column(
         modifier
-            .heightIn(min = 78.dp)
+            .heightIn(min = 72.dp)
             .clip(shape)
             .background(if (selected) C.PanelHigh else C.Panel)
             .border(1.5.dp, if (selected) accent else C.Hair, shape)
             .clickable(onClick = onClick)
-            .padding(vertical = 9.dp),
+            .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        ThemeMarkView(mark, 26.dp)
-        Spacer(Modifier.height(6.dp))
-        Text(label, color = if (selected) C.Ivory else C.Muted, fontSize = 11.sp)
+        ThemeMarkView(mark, 24.dp)
+        Spacer(Modifier.height(5.dp))
+        Text(label, color = if (selected) C.Ivory else C.Muted, fontSize = 10.sp)
     }
 }
 

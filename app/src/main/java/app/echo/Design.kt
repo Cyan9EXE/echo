@@ -266,7 +266,7 @@ internal fun SunMoonMark(progress: Float, accent: Color, modifier: Modifier = Mo
 /** 顶栏主题区：日/夜按钮（点=切换，按住下滑=打开面板）+ 冒号指示块（点=打开面板）。 */
 @Composable
 internal fun ThemeSwitcher(state: AppState, accent: Color) {
-    val mark = C.mark(state.skinIndex, Color(state.customAccent), accent)
+    val mark = C.mark(state.skinIndex, accent)
     val label = if (state.customMode) "自定义" else C.skinLabel(state.skinIndex)
     val haptics = LocalHapticFeedback.current
     val threshold = with(LocalDensity.current) { 26.dp.toPx() }

@@ -384,7 +384,7 @@ internal fun RevivalBanner(state: AppState, s: Session, accent: Color) {
                     scale = .96f,
                     description = "完整原文复活",
                 ) {
-                    Text("完整原文复活", color = C.Void, fontSize = 12.sp, modifier = Modifier.background(accent, RoundedCornerShape(9.dp)).padding(horizontal = 14.dp, vertical = 7.dp))
+                    Text("完整原文复活", color = C.onAccent, fontSize = 12.sp, modifier = Modifier.background(accent, RoundedCornerShape(9.dp)).padding(horizontal = 14.dp, vertical = 7.dp))
                 }
                 Spacer(Modifier.width(10.dp))
                 Pressable(

@@ -132,7 +132,7 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 ## 10. 设计系统与品牌层
 
 - Design.kt 提供设计 token、通用组件与 EchoMark 品牌标记；Glyphs.kt 用 Compose 画图标字形，不依赖位图。
-- Theme.kt：外观 Look = PAPER（日间）/ INK（夜间）/ WARM（暖黄）/ GREEN（淡绿）/ CUSTOM（日间自定义底色）；5 种强调色（金/蓝/青/陶/白）× 4 外观 = 20 个预设；夜间底色 #050608，日间 #F4F2ED；暖黄与淡绿只在日间、由 eyeMode 控制。
+- Theme.kt：外观 Look = PAPER（日间）/ INK（夜间）/ WARM（暖黄）/ GREEN（淡绿）/ CUSTOM（日间自定义底色）；6 种强调色（沙金/雾蓝/黛青/陶土/灰紫/靛蓝）× 4 外观 = 24 个预设；夜间底色 #050608，日间 #F4F2ED；暖黄与淡绿只在日间、由 eyeMode 控制。强调色拆三角色：填充用 accent（日/夜各一值），日间小字用 accentText（命中预设时取 dayText，否则按对纸白的对比度自动加深到 ≥4.6），填充上的字用 onAccent（近黑）；夜间 accent 同时负责填充与小字。
 - Android launcher 图标在 app/src/main/res/mipmap-*/ic_launcher* 与 adaptive 资源里，当前是蓝白命令提示符（1.6:1 圆角瓦片，提交 ccdb156）；应用内 EchoMark 与 launcher mark 是两套绘制，需保持形状语言同源。
 - 文案语气：短句、克制、不带官方背书；欢迎页「欢迎回来，随时续上。」，关于页 slogan「把没说完的话，接回来。」，输入区页脚「内容由 AI 生成，请仔细甄别 · 数据只保存在本机」。
 

@@ -25,17 +25,18 @@ object C {
     var themeProgress by mutableFloatStateOf(0f)
 
     val skins = listOf(
-        Skin("沙金", Color(0xFFB4974C), Color(0xFF7F6726)),
-        Skin("雾蓝", Color(0xFF759ECC), Color(0xFF4C6C91)),
-        Skin("黛青", Color(0xFF60A6A5), Color(0xFF3C7272)),
-        Skin("陶土", Color(0xFFD1877B), Color(0xFF965A50)),
-        Skin("灰紫", Color(0xFFB38DBE), Color(0xFF7E5F87)),
+        Skin("沙金", Color(0xFFE2C070), Color(0xFFC9A227), Color(0xFF7A6414)),
+        Skin("雾蓝", Color(0xFF759ECC), Color(0xFF5E86B8), Color(0xFF3D5D82)),
+        Skin("黛青", Color(0xFF60A6A5), Color(0xFF3F8F8C), Color(0xFF2E6360)),
+        Skin("陶土", Color(0xFFD1877B), Color(0xFFC58573), Color(0xFF85473C)),
+        Skin("灰紫", Color(0xFFB38DBE), Color(0xFFA987B8), Color(0xFF6B4E75)),
+        Skin("靛蓝", Color(0xFFA9B4E8), Color(0xFF6E7BE0), Color(0xFF434B8F)),
     )
 
     var isDay by mutableStateOf(false)
         private set
 
-    /** 5 色均同时具备日/夜值，不再有「白」日间转黑的特例。 */
+    /** 6 色均同时具备日/夜值；日间 12sp 小字另取 dayText，填充直接用日/夜值。 */
     fun skinLabel(index: Int): String = skins.getOrNull(index)?.label ?: "自定义"
 
     var eyeMode by mutableIntStateOf(0)
@@ -103,7 +104,8 @@ object C {
 
     fun previewAccent(look: Look, index: Int): Color {
         val i = index.coerceIn(0, skins.lastIndex)
-        return if (look == Look.INK) Color(ACCENT_NIGHT[i]) else Color(ACCENT_DAY[look.ordinal][i])
+        if (look == Look.INK) return Color(ACCENT_NIGHT[i])
+        return Color(ACCENT_DAY[look.ordinal.coerceIn(0, ACCENT_DAY.lastIndex)][i])
     }
 
     fun accentAt(position: Float): Color {
@@ -116,9 +118,52 @@ object C {
 
     fun tone(accent: Color): Color = mixOklab(accent, Color.Black, 0.30f)
 
-    /** 日间强调色作小字时的加深版：在 16% 同色底上仍 ≥4.5:1；夜间不变。 */
-    fun accentText(accent: Color): Color =
-        if (!isDay) accent else mixOklab(accent, Color.Black, 0.09f)
+    /** 填充上的文字：亮色强调色上一律近黑，日夜都成立。 */
+    val onAccent: Color
+        get() = if (isDay) Color(0xFF0C0A07) else Color(0xFF050608)
+
+    /**
+     * 日间强调色作 12sp 小字时用的深色版：预设色取设计好的 dayText，
+     * 自定义色按与底色的对比度迭代加深；夜间直接用亮色本身。
+     */
+    fun accentText(accent: Color): Color {
+        if (!isDay) return accent
+        val preset = nearestSkin(accent)
+        if (preset >= 0) return skins[preset].dayText
+        var c = accent
+        var guard = 0
+        while (contrastOn(c, Void) < 4.6f && guard++ < 32) {
+            c = mixOklab(c, Color.Black, 0.06f)
+        }
+        return c
+    }
+
+    /** OKLab 距离最近的预设强调色；超过阈值视为自定义色。 */
+    private fun nearestSkin(accent: Color): Int {
+        val x = accent.toOklab()
+        var best = -1
+        var bestDistance = 0.033f
+        skins.forEachIndexed { i, skin ->
+            val y = skin.day.toOklab()
+            val dl = x[0] - y[0]
+            val da = x[1] - y[1]
+            val db = x[2] - y[2]
+            val d = kotlin.math.sqrt(dl * dl + da * da + db * db)
+            if (d < bestDistance) {
+                bestDistance = d
+                best = i
+            }
+        }
+        return best
+    }
+
+    private fun contrastOn(a: Color, b: Color): Float {
+        val la = a.luminance()
+        val lb = b.luminance()
+        val hi = kotlin.math.max(la, lb)
+        val lo = kotlin.math.min(la, lb)
+        return (hi + 0.05f) / (lo + 0.05f)
+    }
 
     fun eyeLit(): Color = if (eyeMode == 2) Color(0xFFCBE7BC) else Color(0xFFF5E3A8)
 
@@ -130,7 +175,8 @@ object C {
         return accentOf(index)
     }
 
-    fun mark(skinIndex: Int, custom: Color, accent: Color): ThemeMark {
+    /** 主题指示块：上块表示底色（白亮/灰暗/护眼/自定义灰），下块就是强调色本身。 */
+    fun mark(skinIndex: Int, accent: Color): ThemeMark {
         val customMode = skinIndex > skins.lastIndex
         val eye = isDay && eyeMode != 0
         val top = when {
@@ -139,7 +185,7 @@ object C {
             eye -> eyeLit()
             else -> if (isDay) Color(0xFFFFFFFF) else Color(0xFFEDEAE3)
         }
-        val bottom = if (customMode) accent else tone(accent)
+        val bottom = accent
         return ThemeMark(top, bottom)
     }
 
@@ -160,9 +206,9 @@ object C {
 
     val Scrim get() = scrimRamp.at(themeProgress)
 
-    val ACCENT_ID = arrayOf("sand", "mist", "slate", "clay", "mauve")
+    val ACCENT_ID = arrayOf("sand", "mist", "slate", "clay", "mauve", "indigo")
 
-    /** 20 个预设：4 外观 × 5 强调色。外观决定底色，强调色只决定 accent。 */
+    /** 24 个预设：4 外观 × 6 强调色。外观决定底色，强调色只决定 accent。 */
     val presets: List<Preset> = listOf(Look.PAPER, Look.INK, Look.WARM, Look.GREEN).flatMap { look ->
         skins.mapIndexed { i, s ->
             Preset(
@@ -175,7 +221,12 @@ object C {
     }
 }
 
-data class Skin(val label: String, val night: Color, val day: Color)
+/**
+ * @param night 夜间强调色（亮，可作小字）
+ * @param day 日间填充色（亮）
+ * @param dayText 日间 12sp 小字色（深）
+ */
+data class Skin(val label: String, val night: Color, val day: Color, val dayText: Color)
 
 data class ThemeMark(val top: Color, val bottom: Color)
 
@@ -326,19 +377,20 @@ private class LookRamp(
 
 /** 夜间强调色（全局共享）。 */
 private val ACCENT_NIGHT = longArrayOf(
-    0xFFB4974C, // 沙金
+    0xFFE2C070, // 沙金
     0xFF759ECC, // 雾蓝
     0xFF60A6A5, // 黛青
     0xFFD1877B, // 陶土
     0xFFB38DBE, // 灰紫
+    0xFFA9B4E8, // 靛蓝
 )
 
-/** 日间强调色：按外观分四套，行序同 Look。V3 日间值已对三种浅底验证，四行同值。 */
+/** 日间强调色＝填充色：按外观分四套，行序同 Look。六色已对三种浅底验证，四行同值。 */
 private val ACCENT_DAY = arrayOf(
-    longArrayOf(0xFF7F6726, 0xFF4C6C91, 0xFF3C7272, 0xFF965A50, 0xFF7E5F87), // PAPER
-    longArrayOf(0xFF7F6726, 0xFF4C6C91, 0xFF3C7272, 0xFF965A50, 0xFF7E5F87), // INK（只作过渡）
-    longArrayOf(0xFF7F6726, 0xFF4C6C91, 0xFF3C7272, 0xFF965A50, 0xFF7E5F87), // WARM
-    longArrayOf(0xFF7F6726, 0xFF4C6C91, 0xFF3C7272, 0xFF965A50, 0xFF7E5F87), // GREEN
+    longArrayOf(0xFFC9A227, 0xFF5E86B8, 0xFF3F8F8C, 0xFFC58573, 0xFFA987B8, 0xFF6E7BE0), // PAPER
+    longArrayOf(0xFFC9A227, 0xFF5E86B8, 0xFF3F8F8C, 0xFFC58573, 0xFFA987B8, 0xFF6E7BE0), // INK（只作过渡）
+    longArrayOf(0xFFC9A227, 0xFF5E86B8, 0xFF3F8F8C, 0xFFC58573, 0xFFA987B8, 0xFF6E7BE0), // WARM
+    longArrayOf(0xFFC9A227, 0xFF5E86B8, 0xFF3F8F8C, 0xFFC58573, 0xFFA987B8, 0xFF6E7BE0), // GREEN
 )
 
 private fun accentNight(i: Int): Color = Color(ACCENT_NIGHT[i])

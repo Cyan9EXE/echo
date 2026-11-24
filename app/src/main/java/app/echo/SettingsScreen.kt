@@ -222,7 +222,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                         Modifier.fillMaxWidth().background(accent).padding(vertical = 11.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(if (state.apiKey.isBlank()) "保存并开始" else "保存", color = C.Void, fontSize = 15.sp)
+                        Text(if (state.apiKey.isBlank()) "保存并开始" else "保存", color = C.onAccent, fontSize = 15.sp)
                     }
                 }
                 Spacer(Modifier.height(22.dp))
@@ -299,7 +299,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     Switch(
                         checked = state.thinking,
                         onCheckedChange = state::updateThinking,
-                        colors = SwitchDefaults.colors(checkedThumbColor = C.Void, checkedTrackColor = accent, uncheckedThumbColor = C.Muted, uncheckedTrackColor = C.PanelHigh),
+                        colors = SwitchDefaults.colors(checkedThumbColor = C.onAccent, checkedTrackColor = accent, uncheckedThumbColor = C.Muted, uncheckedTrackColor = C.PanelHigh),
                     )
                 }
                 Spacer(Modifier.height(16.dp))
@@ -373,7 +373,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                 ) {
                     Text("主题", color = C.Ivory, fontSize = 14.sp)
                     Spacer(Modifier.weight(1f))
-                    ThemeMarkView(C.mark(state.skinIndex, Color(state.customAccent), accent), 18.dp)
+                    ThemeMarkView(C.mark(state.skinIndex, accent), 18.dp)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         if (state.customMode) "自定义" else C.skinLabel(state.skinIndex),
@@ -456,7 +456,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     Switch(
                         checked = state.showBillingHints,
                         onCheckedChange = state::updateShowBillingHints,
-                        colors = SwitchDefaults.colors(checkedTrackColor = accent),
+                        colors = SwitchDefaults.colors(checkedThumbColor = C.onAccent, checkedTrackColor = accent),
                     )
                 }
                 Spacer(Modifier.height(22.dp))
@@ -489,7 +489,7 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                             Switch(
                                 checked = !state.importGuideOff,
                                 onCheckedChange = { state.updateImportGuide(!it) },
-                                colors = SwitchDefaults.colors(checkedTrackColor = accent),
+                                colors = SwitchDefaults.colors(checkedThumbColor = C.onAccent, checkedTrackColor = accent),
                             )
                         }
                     }
