@@ -2,7 +2,7 @@
 
 一个原生 Android 客户端（Kotlin + Jetpack Compose）：把 DeepSeek 官方导出的历史会话 ZIP 导入本机，逐会话复活已超过 7 天未活跃的对话；对话直接走用户自己的 API Key（BYOK），不经过任何中转服务器。
 
-> **版本 1.0.5（MIT 版） · versionCode 6** · 由 **DeepSeek-V4.1-Flash** 构建
+> **版本 1.0.6（MIT 版） · versionCode 7** · 由 **DeepSeek-V4.1-Flash** 构建
 > 第三方客户端，与 DeepSeek 官方无隶属关系；DeepSeek 名称与商标归其所有者。
 
 ## 免责声明与品牌边界
@@ -55,7 +55,7 @@
 
 - namespace = applicationId = app.echo；旧包名 app.xuxie 已废弃，不得再使用。
 - minSdk 26 / targetSdk 35。
-- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 6 / 1.0.5）。
+- 版本号只有一个来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 7 / 1.0.6）。
 - 测试：JVM 单元测试 **146 例 0 失败**，覆盖请求体拼装与 SSE 解析/协议回归（`buildChatBody` / `pumpSse`）、计费与切分、格式化、导出渲染与 Markdown 解析（含流式切段扫描推进）、48k 半带重采样与播放尾等待（`TtsAudioTest`）、贴底跟随判定与发送回底纯函数（`FollowTailTest` 6 例）、落盘策略（`SessionPersistenceTest` 13 例：索引必写、加载门禁、脏标记代数、恢复对账顺序、墓碑剔除、坏索引合并与重复 id、启动清理门禁、墓碑合并与回滚、持久化过滤 persistableIds）、`TombstoneStoreTest` 6 例（墓碑文件损坏返回 null 且保留原文件、round-trip、并发 merge 保留磁盘墓碑、remove 保留其他、加载清理 merge 保留新增）、`ThemeContrastTest` 14 例（六强调色日/夜小字与自定义极端色对比度均 ≥4.7、任意灰阶经 `readableAccent` 归一后填充字仍 ≥4.7、预设色不被改写、选中 pill 文字、HelpDialogs 勾选、预设预览卡边框按卡底取前景、选中标签与边框、预设自映射、旧 skinSchema 迁移幂等）；本地 `bash scripts/run_tests.sh --smoke` 会跑编译 + 单测 + mock SSE 自检 + 冒烟，命令与约定见 CONTRIBUTING.md；GitHub Actions 见 .github/workflows/ci.yml。
 - 性能：流式正文按帧合并发布（Choreographer 帧回调，正常 / 性能模式分别 16 / 33ms 上限），对话页只在贴底且用户未上滑时跟随：新消息插入先按 `tailRescueIndex` 把尾项滚入视口，随后逐帧 `scrollBy`；Markdown 流式只在代码围栏 / 块级公式之外的空行或围栏闭合处提交稳定段并增量解析，末尾未闭合部分按全文纯文本渲染、不截断不隐藏（超过 2400 字符按 1200 字符分块，全文分块不切断代理对，流式稳定前缀边界落在高代理项之后会回退一格），稳定前缀按字符串缓存，未提交尾部只缓存已写满的 1200 字符块、每个 token 只重排最后一段增长尾部，完成后整体排版。会话列表的分区 / 搜索 / 排序结果按状态缓存；索引与快照的组装（`snapshotSession`）在主线程、序列化与写盘在 IO 线程，会话正文按需懒加载（≤48KB 快照在主线程同步解析；更大快照在 IO 线程完成 JSON→消息列表与摘要解析，主线程只发布结果，列表先用占位项渲染；正文未 ready 时发送 / 复活只提示稍候）。
 - AOT（profile 引导）：release 内置官方 androidx.baselineprofile 插件生成的 **Baseline Profile**，并依赖 androidx.profileinstaller:1.4.1。Baseline Profile 只是“热点方法清单”，随同一个 APK 分发到所有设备；真正的机器码由每台设备安装/空闲时由 ART 的 dex2oat 以 speed-profile 本地生成，**不随安装包分发机器码**。
@@ -99,11 +99,11 @@ profile 由 baselineprofile 宏基准模块采集，覆盖启动、滚动、设�
 - 联网搜索真实 Key 全链路已于 2026-11-23 在本机打通（回答末尾的来源引用可正常渲染）；CI 工作流已随仓库提交，但尚未在 GitHub 实跑（本地等价流程 `bash scripts/run_tests.sh --smoke` 当前 146 例全绿）。
 - 视觉与交互以主题打磨为主；附件重传、多端同步等能力见 docs/not-doing.md 与路线图。
 
-## 1.0.6（开发中，版本号仍 1.0.5）
+## 1.0.6（2026-11-25 发布）
 
-- **六强调色三角色**：沙金 / 雾蓝 / 黛青 / 陶土 / 灰紫 / 靛蓝六种强调色以真实欢迎页预览呈现，四档外观下实时重绘；强调色拆成填充 accent、日间小字 accentText、填充上文字 onAccent 三个角色，自定义 HSL 任意明度（含中灰）在入库时自动压深或提亮，填充与填充上的字对比度均 ≥4.7；已按外部评审修完 R16 的 P1/P2、R17 的 P2-1/P2-2 与 R18 的 P2-1/P2-2/P2-3、P3-1~P3-4，当前 146 例全绿，待第 19 轮复评。
+- **六强调色三角色**：沙金 / 雾蓝 / 黛青 / 陶土 / 灰紫 / 靛蓝六种强调色以真实欢迎页预览呈现，四档外观下实时重绘；强调色拆成填充 accent、日间小字 accentText、填充上文字 onAccent 三个角色，自定义 HSL 任意明度（含中灰）在入库时自动压深或提亮，填充与填充上的字对比度均 ≥4.7；已按外部评审修完 R16 的 P1/P2、R17 的 P2-1/P2-2 与 R18 的 P2-1/P2-2/P2-3、P3-1~P3-4，当前 146 例全绿；第 18 轮达到 P0=0 / P1=0，第 19 轮未落盘，不再作为发布门禁。
 - 沙金提亮来自用户反馈（2026-11-23）：日间填充色改为 `#C9A227`、小字 `#66520D`、夜间 `#E2C070`。
-- 版本号与发布产物均未改动，仍为 1.0.5 / versionCode 6。
+- 发布版本号：**1.0.6 / versionCode 7**（2026-11-25），APK、SHA-256 与说明见 GitHub Release v1.0.6。
 
 ## 文档
 

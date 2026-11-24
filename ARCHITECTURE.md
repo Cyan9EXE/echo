@@ -1,6 +1,6 @@
 # Echo / 回声 架构说明
 
-> 适用版本：1.0.5（versionCode 6）。版本号唯一来源是 gradle.properties 的 echo.versionCode / echo.versionName。本文描述当前代码，不是承诺；路径相对 app-native/。
+> 适用版本：1.0.6（versionCode 7）。版本号唯一来源是 gradle.properties 的 echo.versionCode / echo.versionName。本文描述当前代码，不是承诺；路径相对 app-native/。
 
 相关文档：能力与限制见 [README.md](README.md)；上游协议见 [docs/protocol-compat.md](docs/protocol-compat.md)；构建、测试与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)；明确边界见 [docs/not-doing.md](docs/not-doing.md)；性能与发布基线见 README.md 与 GitHub Actions 记录。
 

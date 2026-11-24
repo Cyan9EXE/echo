@@ -1,6 +1,6 @@
 # DeepSeek API 兼容基线
 
-> 适用版本：1.0.5（versionCode 6）。本文记录 Echo 实际调用的上游接口、字段、事件与容错口径，不是官方文档。
+> 适用版本：1.0.6（versionCode 7）。本文记录 Echo 实际调用的上游接口、字段、事件与容错口径，不是官方文档。
 > 上游以 https://api.deepseek.com 的公开接口与官方文档为准；若本文与官方不一致，以官方为准，并回来修正本文与 Api.kt / Sse.kt。
 
 ## 1. 目的与边界
@@ -162,7 +162,7 @@ TTS/ASR 与对话使用同一个 API Key、同一个账户；调用前弹计费�
 - applicationId / namespace：app.echo；旧包名 app.xuxie 已废弃（不同 applicationId 不能覆盖升级）。
 - minSdk 26 / compileSdk 35 / targetSdk 35；JDK 17；Gradle 8.9（仓库内含 wrapper：`./gradlew`，distributionSha256Sum 固定）。
 - Kotlin 2.0.21、AGP 8.7.3、Compose BOM 2024.09.00。
-- 版本号唯一来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 6 / 1.0.5）。
+- 版本号唯一来源：gradle.properties 的 echo.versionCode / echo.versionName（当前 7 / 1.0.6）。
 - 发布签名与证书 SHA-256 指纹见 README.md；签名材料不入库。
 
 ## 12. 真 Key 实测记录（2026-11-23，emulator-5554）
