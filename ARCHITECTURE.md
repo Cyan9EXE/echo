@@ -38,14 +38,14 @@ Export.kt（580） | 导出引擎与面板 | 单会话 Markdown / 全会话 ZIP�
 Design.kt（440） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:115）
 Theme.kt（577） | 主题 | 外观、强调色、Oklab 色阶与过渡
 Lightness.kt（99） | 感知明度 | CIE L* 0–100 ↔ HSL 二分反解；HSL 转换自实现，JVM 可单测
-ThemeSheet.kt（969） | 主题面板 | 预设、浅/深两套自定义底色（L* 旋钮）、HSL 强调色
+ThemeSheet.kt（1033） | 主题面板 | 预设、浅/深两套自定义底色（L* 旋钮、实时色带与外向内三角）、HSL 强调色
 Glyphs.kt（300） | 图标字形 | 纯 Compose 绘制，不依赖图片资源
 Markdown.kt（1640） | Markdown / LaTeX 渲染 | 自研子集解析 + Compose 渲染、代码块与公式布局（流式稳定段增量解析、未闭合尾行按纯文本）
 Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（24） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 30 个 Kotlin 文件、13312 行（随提交变化）。
+合计 30 个 Kotlin 文件、13376 行（随提交变化）。
 
 ## 3. 状态与持久化
 
@@ -139,7 +139,7 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
 ## 11. 测试与验证
 
-- JVM 单测 155 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段、代理对边界与 8K 单行扫描推进，36 例）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、加载门禁、脏标记代数、恢复对账、墓碑剔除、坏索引合并与墓碑回滚与持久化过滤 persistableIds，13 例）、TombstoneStoreTest（墓碑损坏返回 null 并保留原文件、round-trip、磁盘为底 merge、remove 保留其他、加载清理 merge，6 例）、ThemeContrastTest（六强调色日/夜小字与自定义极端色对比度均 ≥4.7、任意灰阶经 readableAccent 归一后填充字仍 ≥4.7、预设色不被改写、选中 pill 文字、HelpDialogs 勾选、预设预览卡边框按卡底取前景、选中标签与边框、预设自映射、旧 skinSchema 迁移幂等、16% 强调色叠底与选中态非文本 ≥3.0、浅/深两套自定义底下的表面明暗与文本对比度、L* 与 H/S 独立性，19 例）、LightnessTest（L* 换算与二分反解、色相/饱和度保持、极端值，4 例）。命令见 CONTRIBUTING.md。
+- JVM 单测 158 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段、代理对边界与 8K 单行扫描推进，36 例）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、加载门禁、脏标记代数、恢复对账、墓碑剔除、坏索引合并与墓碑回滚与持久化过滤 persistableIds，13 例）、TombstoneStoreTest（墓碑损坏返回 null 并保留原文件、round-trip、磁盘为底 merge、remove 保留其他、加载清理 merge，6 例）、ThemeContrastTest（六强调色日/夜小字与自定义极端色对比度均 ≥4.7、任意灰阶经 readableAccent 归一后填充字仍 ≥4.7、预设色不被改写、选中 pill 文字、HelpDialogs 勾选、预设预览卡边框按卡底取前景、选中标签与边框、预设自映射、旧 skinSchema 迁移幂等、16% 强调色叠底与选中态非文本 ≥3.0、浅/深两套自定义底下的表面明暗与文本对比度、L* 与 H/S 独立性，19 例）、LightnessTest（L* 换算与二分反解、色相/饱和度保持、极端值、三条旋钮色带采样命中目标 L* 与 L* 带单调，7 例）。命令见 CONTRIBUTING.md。
 - 本地协议联调：scripts/mock_sse_server.py 提供 normal / truncated / error_sse / 429 / 500 五种模式，默认 18080 端口；debug 构建加 -PapiOrigin 指向它。
 - 构建验证：gradle :app:compileDebugKotlin（日常）；release 构建、签名与 Baseline Profile 见 README.md。
 - CI：.github/workflows/ci.yml（GitHub Actions）依次跑 Kotlin 编译、JVM 单测与 scripts/mock_sse_server.py --selftest，环境为 JDK 17 / Gradle 8.9 / Android SDK 35。

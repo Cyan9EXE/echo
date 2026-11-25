@@ -44,6 +44,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
@@ -544,6 +545,16 @@ private fun CustomBaseEditor(state: AppState, accent: Color) {
         else -> accent
     }
     val commit: () -> Unit = { state.applyCustomBase(hue, sat, lstar) }
+    // 每条色带都在回答同一个问题：另外两个旋钮不动，只把这一只转到这里会得到什么底色。
+    val hueBand = remember(sat, lstar) {
+        bandColors { t -> Lightness.argbFor(t * 360f, sat, lstar) }
+    }
+    val satBand = remember(hue, lstar) {
+        bandColors { t -> Lightness.argbFor(hue, t * 100f, lstar) }
+    }
+    val lstarBand = remember(hue, sat) {
+        bandColors { t -> Lightness.argbFor(hue, sat, t * 100f) }
+    }
 
     Text(
         "自定义底色", color = C.Ivory, fontSize = 13.sp, fontWeight = FontWeight.Medium,
@@ -572,7 +583,8 @@ private fun CustomBaseEditor(state: AppState, accent: Color) {
 
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
         KnobColumn(
-            Modifier.weight(1f), "色相", "${hue.roundToInt() % 360}°", hue / 360f, true, accent,
+            Modifier.weight(1f), "色相", "${hue.roundToInt() % 360}°", hue / 360f, true,
+            band = hueBand,
             onFraction = { hue = it * 360f },
             onStep = { d ->
                 hue = ((hue + d) % 360f + 360f) % 360f
@@ -581,7 +593,8 @@ private fun CustomBaseEditor(state: AppState, accent: Color) {
             onCommit = commit,
         )
         KnobColumn(
-            Modifier.weight(1f), "饱和度", "${sat.roundToInt()}%", sat / 100f, false, accent,
+            Modifier.weight(1f), "饱和度", "${sat.roundToInt()}%", sat / 100f, false,
+            band = satBand,
             onFraction = { sat = it * 100f },
             onStep = { d ->
                 sat = (sat + d).coerceIn(0f, 100f)
@@ -590,7 +603,8 @@ private fun CustomBaseEditor(state: AppState, accent: Color) {
             onCommit = commit,
         )
         KnobColumn(
-            Modifier.weight(1f), "明度", "L*${lstar.roundToInt()}", lstar / 100f, false, accent,
+            Modifier.weight(1f), "明度", "L*${lstar.roundToInt()}", lstar / 100f, false,
+            band = lstarBand,
             onFraction = { lstar = it * 100f },
             onStep = { d ->
                 lstar = (lstar + d).coerceIn(0f, 100f)
@@ -778,6 +792,15 @@ private fun AccentStrip(state: AppState, palette: CustomSurface, accent: Color) 
     }
 }
 
+private const val BAND_SAMPLES = 36
+
+/**
+ * 色带样本：t∈(0,1) 处的颜色 = 「另外两个旋钮不动，只把当前这只转到这里」得到的底色。
+ * 三条旋钮各自沿用同一套 Lightness.argbFor，色带与实时预览的底色完全同源。
+ */
+private fun bandColors(samples: Int = BAND_SAMPLES, colorAt: (Float) -> Int): List<Color> =
+    List(samples) { i -> Color(colorAt((i + 0.5f) / samples)) }
+
 @Composable
 private fun KnobColumn(
     modifier: Modifier,
@@ -785,7 +808,7 @@ private fun KnobColumn(
     valueText: String,
     fraction: Float,
     wrap: Boolean,
-    accent: Color,
+    band: List<Color>,
     onFraction: (Float) -> Unit,
     onStep: (Int) -> Unit,
     onCommit: () -> Unit,
@@ -795,7 +818,7 @@ private fun KnobColumn(
             valueText = valueText,
             fraction = fraction,
             wrap = wrap,
-            accent = accent,
+            band = band,
             description = "调整${label}",
             onFraction = onFraction,
             onCommit = onCommit,
@@ -816,7 +839,7 @@ private fun Dial(
     valueText: String,
     fraction: Float,
     wrap: Boolean,
-    accent: Color,
+    band: List<Color>,
     description: String,
     onFraction: (Float) -> Unit,
     onCommit: () -> Unit,
@@ -827,7 +850,7 @@ private fun Dial(
     val currentOnCommit = rememberUpdatedState(onCommit)
     Box(
         Modifier
-            .size(80.dp)
+            .size(88.dp)
             .semantics {
                 contentDescription = description
                 progressBarRangeInfo = ProgressBarRangeInfo(f, 0f..1f)
@@ -871,40 +894,77 @@ private fun Dial(
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val stroke = 4.dp.toPx()
-            val radius = (size.minDimension - 16.dp.toPx()) / 2f
-            val topLeft = Offset(center.x - radius, center.y - radius)
-            val arcSize = Size(radius * 2f, radius * 2f)
+            // 内圈色带＝这只旋钮的底色：每段颜色都是「另外两钮不动、只转到这里」的结果色。
+            val bandOuter = 32.dp.toPx()
+            val bandWidth = 9.dp.toPx()
+            val bandRadius = bandOuter - bandWidth / 2f
+            val topLeft = Offset(center.x - bandRadius, center.y - bandRadius)
+            val arcSize = Size(bandRadius * 2f, bandRadius * 2f)
+            val n = band.size
+            fun paint(from: Float, to: Float, alpha: Float, width: Float = bandWidth) {
+                for (i in 0 until n) {
+                    val segStart = i.toFloat() / n
+                    val segEnd = (i + 1f) / n
+                    if (segEnd <= from || segStart >= to) continue
+                    val a1 = 135f + 270f * maxOf(segStart, from)
+                    val a2 = 135f + 270f * minOf(segEnd, to) + 1.2f
+                    drawArc(
+                        color = band[i].copy(alpha = band[i].alpha * alpha),
+                        startAngle = a1,
+                        sweepAngle = a2 - a1,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = width, cap = StrokeCap.Butt),
+                    )
+                }
+            }
+            // 凹槽打底：淡彩段落在同色面板上也能看出这是一条带。
             drawArc(
-                color = C.ControlBorder.copy(alpha = .55f),
+                color = C.ControlBorder.copy(alpha = 0.18f),
                 startAngle = 135f,
                 sweepAngle = 270f,
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
-                style = Stroke(width = stroke, cap = StrokeCap.Round),
+                style = Stroke(width = bandWidth + 4.dp.toPx(), cap = StrokeCap.Butt),
             )
-            drawArc(
-                color = accent,
-                startAngle = 135f,
-                sweepAngle = 270f * f,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round),
-            )
+            // 未选段压暗、选中段加粗提亮：0→当前值这一段随拖动即时变化。
+            paint(0f, 1f, 0.55f)
+            paint(0f, f.coerceIn(0f, 1f), 1f, bandWidth + 3.dp.toPx())
+            // 带内外各一道 1dp 细沿，把带从凹槽里衬出来。
+            fun ring(radius: Float) {
+                drawArc(
+                    color = C.Hair.copy(alpha = 0.45f),
+                    startAngle = 135f,
+                    sweepAngle = 270f,
+                    useCenter = false,
+                    topLeft = Offset(center.x - radius, center.y - radius),
+                    size = Size(radius * 2f, radius * 2f),
+                    style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Butt),
+                )
+            }
+            ring(bandRadius + bandWidth / 2f)
+            ring(bandRadius - bandWidth / 2f)
             val rad = Math.toRadians((135f + 270f * f).toDouble())
-            drawCircle(
-                color = C.Ivory,
-                radius = 5.dp.toPx(),
-                center = Offset(
-                    center.x + cos(rad).toFloat() * radius,
-                    center.y + sin(rad).toFloat() * radius,
-                ),
-            )
+            val dir = Offset(cos(rad).toFloat(), sin(rad).toFloat())
+            val perp = Offset(-dir.y, dir.x)
+            val tip = center + dir * (bandOuter + 1.5.dp.toPx())
+            val base = center + dir * (bandOuter + 9.dp.toPx())
+            val half = 4.4.dp.toPx()
+            val triangle = Path().apply {
+                moveTo(tip.x, tip.y)
+                lineTo(base.x + perp.x * half, base.y + perp.y * half)
+                lineTo(base.x - perp.x * half, base.y - perp.y * half)
+                close()
+            }
+            drawPath(triangle, C.Ivory)
         }
         Text(
-            valueText, color = C.Ivory, fontSize = 20.sp, fontFamily = FontFamily.Monospace,
+            valueText,
+            color = C.Ivory,
+            fontSize = 14.sp,
+            fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Medium,
         )
     }

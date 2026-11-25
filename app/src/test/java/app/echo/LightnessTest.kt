@@ -48,6 +48,40 @@ class LightnessTest {
         }
     }
 
+    // 旋钮内圈的三条色带与实时预览同源：每格颜色都是「另外两个旋钮不动」时该位置的真实底色。
+    @Test
+    fun everyHueBandSampleHitsTheTargetLstar() {
+        for (step in 0 until 36) {
+            val hue = (step + 0.5f) / 36f * 360f
+            val argb = Lightness.argbFor(hue, 22f, 92.7f)
+            close(92.7f, Lightness.lstarOf(argb), 0.7f, "色相带 hue=" + hue)
+        }
+    }
+
+    @Test
+    fun everySaturationBandSampleHitsTheTargetLstar() {
+        for (step in 0 until 36) {
+            val sat = (step + 0.5f) / 36f * 100f
+            val argb = Lightness.argbFor(86f, sat, 50f)
+            close(50f, Lightness.lstarOf(argb), 0.7f, "饱和度带 S=" + sat)
+        }
+    }
+
+    @Test
+    fun lstarBandRunsFromBlackToWhiteAndStaysMonotonic() {
+        val black = Lightness.argbFor(86f, 22f, 0f)
+        val white = Lightness.argbFor(86f, 22f, 100f)
+        assertEquals(0xFF000000.toInt(), black)
+        assertEquals(0xFFFFFFFF.toInt(), white)
+        var previous = -1f
+        for (step in 0 until 36) {
+            val argb = Lightness.argbFor(86f, 22f, (step + 0.5f) / 36f * 100f)
+            val value = Lightness.lstarOf(argb)
+            assertTrue("明度带应单调递增：step=" + step + " value=" + value, value >= previous)
+            previous = value
+        }
+    }
+
     @Test
     fun tripleRoundTripsHueAndSaturation() {
         val argb = Lightness.argbFor(212f, 62f, 50f)
