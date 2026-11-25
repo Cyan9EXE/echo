@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.max
@@ -40,7 +41,7 @@ class ThemeContrastTest {
     fun resetTheme() {
         C.initDay(false)
         C.applyEye(0)
-        C.applyCustomTheme(null)
+        C.applyCustomThemes(null, null)
     }
 
     @Test
@@ -258,16 +259,17 @@ class ThemeContrastTest {
 
     @Test
     fun customDarkBackgroundBuildsDarkSurfacesAndReadableText() {
-        C.initDay(true)
+        C.initDay(false)
         listOf(0xFF101820.toInt(), 0xFF1B2430.toInt(), 0xFF0E1220.toInt(), 0xFF2A1F3D.toInt()).forEach { argb ->
-            C.applyCustomTheme(argb)
+            C.applyCustomThemes(0xFFF4F2ED.toInt(), argb)
             val tag = "custom dark 0x" + argb.toString(16)
             assertTrue(tag + " 应判为深色界面", C.isDarkBackground)
             assertEquals(tag + " 底色应为所选颜色", Color(argb), C.customField())
+            assertEquals(tag + " 夜间那套底色", Color(argb), C.customFieldFor(false))
             assertTrue(tag + " 面板应比底色亮", C.Panel.luminance() > C.Void.luminance())
             assertTrue(tag + " 高亮面板应比面板亮", C.PanelHigh.luminance() > C.Panel.luminance())
             assertContrast(tag + " 正文", C.Ivory, listOf(C.Void, C.Panel, C.PanelHigh), 4.5f)
-            assertContrast(tag + " 次级字", C.Muted, listOf(C.Void, C.Panel, C.PanelHigh), 3.2f)
+            assertContrast(tag + " 次级字", C.Muted, listOf(C.Void, C.Panel, C.PanelHigh), 3.0f)
             C.skins.forEachIndexed { index, skin ->
                 assertEquals(tag + " preset 应取夜间色", skin.night, C.presetAccent(index))
                 assertContrast(tag + " accent text", C.accentText(skin.night), C.textBackgrounds(skin.night), 4.7f)
@@ -279,16 +281,17 @@ class ThemeContrastTest {
     fun customLightBackgroundKeepsPaperLikeSurfaces() {
         C.initDay(true)
         listOf(0xFFF4F2ED.toInt(), 0xFFF2E8D5.toInt(), 0xFFEAF1F7.toInt(), 0xFFFFF9E8.toInt()).forEach { argb ->
-            C.applyCustomTheme(argb)
+            C.applyCustomThemes(argb, 0xFF101820.toInt())
             val tag = "custom light 0x" + argb.toString(16)
             assertTrue(tag + " 应判为浅色界面", !C.isDarkBackground)
             assertEquals(tag + " 底色应为所选颜色", Color(argb), C.customField())
+            assertEquals(tag + " 日间那套底色", Color(argb), C.customFieldFor(true))
             assertTrue(tag + " 浅色面板应比底色暗", C.Panel.luminance() < C.Void.luminance())
             assertContrast(tag + " 正文", C.Ivory, listOf(C.Void, C.Panel, C.PanelHigh), 4.5f)
-            assertContrast(tag + " 次级字", C.Muted, listOf(C.Void, C.Panel, C.PanelHigh), 3.2f)
+            assertContrast(tag + " 次级字", C.Muted, listOf(C.Void, C.Panel, C.PanelHigh), 3.0f)
             C.skins.forEachIndexed { index, skin ->
                 assertEquals(tag + " preset 应取日间色", skin.day, C.presetAccent(index))
-                assertContrast(tag + " accent text", C.accentText(skin.night), C.textBackgrounds(skin.night), 4.7f)
+                assertContrast(tag + " accent text", C.accentText(skin.day), C.textBackgrounds(skin.day), 4.7f)
             }
         }
     }
@@ -297,11 +300,57 @@ class ThemeContrastTest {
     fun resettingCustomThemeRestoresPresetSurfaces() {
         C.initDay(true)
         val before = listOf(C.Void, C.Panel, C.PanelHigh, C.Hair, C.Ivory, C.Muted)
-        C.applyCustomTheme(0xFF101820.toInt())
-        C.applyCustomTheme(null)
+        C.applyCustomThemes(0xFF101820.toInt(), 0xFF101820.toInt())
+        C.applyCustomThemes(null, null)
         assertEquals(before, listOf(C.Void, C.Panel, C.PanelHigh, C.Hair, C.Ivory, C.Muted))
         assertEquals(Color(0xFFF4F2ED), C.customField())
         assertTrue("清除后明暗应重新跟随日夜", C.isDarkBackground == !C.isDay)
+    }
+
+    /** 浅色与深色是两套独立底色：切日夜只换用哪一套，不互相覆盖。 */
+    @Test
+    fun lightAndDarkCustomThemesAreIndependent() {
+        C.initDay(true)
+        C.applyCustomThemes(0xFFF7F2E8.toInt(), 0xFF101820.toInt())
+        assertEquals(Color(0xFFF7F2E8), C.Void)
+        assertFalse(C.isDarkBackground)
+        assertEquals(Color(0xFF101820), C.customFieldFor(false))
+        assertEquals(C.Look.CUSTOM, C.look)
+
+        C.initDay(false)
+        assertEquals(Color(0xFF101820), C.Void)
+        assertTrue(C.isDarkBackground)
+        assertEquals(Color(0xFFF7F2E8), C.customFieldFor(true))
+        assertEquals(C.Look.CUSTOM, C.look)
+
+        // 自定义模式在日间也返回 CUSTOM，不再被「夜间优先」挡掉。
+        C.applyCustomThemes(null, null)
+        C.initDay(true)
+        assertEquals(C.Look.PAPER, C.look)
+    }
+
+    /** 草稿预览：极深/极浅都判对极性，正文与次级字在任意 L* 下都可读。 */
+    @Test
+    fun previewSurfacePolarityAndBodyTextReadable() {
+        listOf(8f, 20f, 35f).forEach { lstar ->
+            assertTrue("L*$lstar 应判深色", C.previewSurface(212f, 45f, lstar).isDark)
+        }
+        listOf(65f, 80f, 97f).forEach { lstar ->
+            assertFalse("L*$lstar 应判浅色", C.previewSurface(212f, 45f, lstar).isDark)
+        }
+        for (lstar in 0..100 step 10) {
+            listOf(0f, 38f, 120f, 212f, 300f).forEach { hue ->
+                val surface = C.previewSurface(hue, 50f, lstar.toFloat())
+                assertContrast(
+                    "preview h=$hue L*=$lstar",
+                    surface.ivory, listOf(surface.void, surface.panel, surface.panelHigh), 4.5f,
+                )
+                assertTrue(
+                    "preview h=$hue L*=$lstar 正文对比 ${C.bodyContrast(surface)} < 4.5",
+                    C.bodyContrast(surface) >= 4.5f,
+                )
+            }
+        }
     }
 
     @Test

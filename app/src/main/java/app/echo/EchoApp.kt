@@ -75,17 +75,19 @@ fun EchoApp(state: AppState) {
     // 主题色是全局静态 token，若逐帧插值，每一帧都会让读取颜色的整棵树重组（P2-6）。
     // 这里改为一次性换色，再用只在绘制阶段取值的 alpha 做 220ms 交叉淡入。
     val themeFade = remember { Animatable(1f) }
-    var statusBarDark by remember { mutableStateOf(C.Void.luminance() > 0.42f) }
+    var statusBarDark by remember { mutableStateOf(!C.isDarkBackground) }
     var themeInitialized by remember { mutableStateOf(false) }
+    // 自定义底色的明暗是可变状态：把它读进组合并作为 key，换底色/调明度时系统栏图标才会跟着翻。
+    val darkBackground = C.isDarkBackground
     LaunchedEffect(
-        C.isDay, C.eyeMode, C.customThemeOn, state.skinIndex, motionOn,
+        C.isDay, C.eyeMode, C.customThemeOn, state.skinIndex, motionOn, darkBackground,
     ) {
         val wantDay = if (C.isDay) 1f else 0f
         val wantEye = if (C.isDay && C.eyeMode != 0) 1f else 0f
         val animate = themeInitialized && motionOn
         C.themeProgress = wantDay
         C.eyeProgress = wantEye
-        val newDark = C.Void.luminance() > 0.42f
+        val newDark = !darkBackground
         if (animate) {
             themeFade.snapTo(0f)
             // 系统栏图标只有明暗两态：在淡入中点翻转，避免动画结束后再跳一次（R8-P2-4）。
@@ -111,13 +113,15 @@ fun EchoApp(state: AppState) {
         if (state.importGuideOff) launchImport() else importGuidePage = 0
     }
     val view = LocalView.current
+    // 在组合里读一次，statusBarDark 变化才会触发重组让 SideEffect 真正把标志写进窗口。
+    val barsDark = statusBarDark
     // 阈值放在中间灰附近：过早翻成深色图标会在深色背景上「消失」；
     // statusBarDark 在交叉淡入中点翻转，背景与图标只跳一次（R9-P2-5）。
     SideEffect {
         val activity = view.context.findActivity() ?: return@SideEffect
         WindowCompat.getInsetsController(activity.window, view).apply {
-            isAppearanceLightStatusBars = statusBarDark
-            isAppearanceLightNavigationBars = statusBarDark
+            isAppearanceLightStatusBars = barsDark
+            isAppearanceLightNavigationBars = barsDark
         }
     }
     val entrance = remember { Animatable(1f) }

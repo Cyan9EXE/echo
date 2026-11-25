@@ -9,22 +9,22 @@
 - 单 Activity（MainActivity，19 行）：enableEdgeToEdge() 后 setContent { EchoApp(remember { AppState(applicationContext) }) }。
 - 无 WebView、无自建后端、无第三方网络库（HttpURLConnection + 手写 SSE）；无 ViewModel、无 DI 框架、无导航库。
 - 应用代码不使用协程处理网络与持久化：每个流式请求一个 Thread，持久化走单线程 Executor，回调统一回投主线程 Handler。Compose 内部的协程只用于 effect / 动画。
-- 全部 UI 状态集中在 AppState（State.kt，约 2.6k 行）；Compose 直接观察它的 mutableState 与 SnapshotStateList。
+- 全部 UI 状态集中在 AppState（State.kt，约 2.8k 行）；Compose 直接观察它的 mutableState 与 SnapshotStateList。
 
 ## 2. 模块地图
 
 文件 | 职责 | 关键点
 MainActivity.kt（28） | 入口 | 只做 setContent
-EchoApp.kt（351） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
+EchoApp.kt（356） | 应用壳/导航/主题切换动画/覆盖层 | AnimatedContent 在 Welcome 与 ChatScreen 间切换；抽屉、设置、主题、用量、答疑、导入向导都是同层覆盖，无路由库
 ChatScreen.kt（463） | 会话页 | 上下文条、导出入口、复活横幅、摘要卡、贴底跟随滚动
 MessageViews.kt（369） | 消息渲染 | 思考折叠、流式光标、分块渲染、计费行、朗读入口、来源
 Composer.kt（352） | 输入区 | 发送/暂停、深度思考/联网、模型标签、语音输入
 WelcomeScreen.kt（145） | 欢迎页 | 品牌 mark、继续上次、导入入口
-Drawer.kt（698） | 会话抽屉 | 标题/联想/内容搜索、对话保留面板、失效分组
-SettingsScreen.kt（603） | 设置与关于 | Key 显示保护、模型、最大输出、系统提示词、语音、外观、导入
-HelpDialogs.kt（517） | 答疑与引导 | 12 条 FAQ、4 级导入向导、通用计费确认
+Drawer.kt（706） | 会话抽屉 | 标题/联想/内容搜索、对话保留面板、失效分组
+SettingsScreen.kt（622） | 设置与关于 | Key 显示保护、模型、最大输出、系统提示词、语音、外观、导入
+HelpDialogs.kt（518） | 答疑与引导 | 12 条 FAQ、4 级导入向导、通用计费确认
 UsageSheet.kt（224） | 用量与费用 | 官方余额、TTS/ASR 账本、生成花费
-State.kt（2653） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
+State.kt（2789） | 唯一状态源 | 持久化、导入、复活、本机摘要、计费估算、搜索索引
 SessionPersistence.kt（83） | 落盘策略 | 索引必写/节流、加载门禁、脏标记代数、恢复对账、坏索引合并（纯 JVM 可单测）
 TombstoneStore.kt（73） | 墓碑存储 | 损坏返回 null 且保留原文件、磁盘为底 merge、原子写（纯 JVM 可单测）
 Models.kt（220） | 数据模型 | Msg/Session/快照/索引/懒加载 MessageList
@@ -36,15 +36,16 @@ Speech.kt（742） | 语音 | TTS 状态机与流式播放、ASR 录音与识别
 TtsAudio.kt（165） | 音频输出层 | 半带 FIR 升采样、AudioTrack 封装、播放尾等待（可 JVM 单测）
 Export.kt（580） | 导出引擎与面板 | 单会话 Markdown / 全会话 ZIP、会话页导出面板；已接入
 Design.kt（440） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:115）
-Theme.kt（485） | 主题 | 外观、强调色、Oklab 色阶与过渡
-ThemeSheet.kt（491） | 主题面板 | 预设、自定义底色、HSL 调色
+Theme.kt（577） | 主题 | 外观、强调色、Oklab 色阶与过渡
+Lightness.kt（99） | 感知明度 | CIE L* 0–100 ↔ HSL 二分反解；HSL 转换自实现，JVM 可单测
+ThemeSheet.kt（969） | 主题面板 | 预设、浅/深两套自定义底色（L* 旋钮）、HSL 强调色
 Glyphs.kt（300） | 图标字形 | 纯 Compose 绘制，不依赖图片资源
 Markdown.kt（1640） | Markdown / LaTeX 渲染 | 自研子集解析 + Compose 渲染、代码块与公式布局（流式稳定段增量解析、未闭合尾行按纯文本）
 Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（24） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 29 个 Kotlin 文件、12,474 行（随提交变化）。
+合计 30 个 Kotlin 文件、13312 行（随提交变化）。
 
 ## 3. 状态与持久化
 
@@ -132,13 +133,13 @@ Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 ## 10. 设计系统与品牌层
 
 - Design.kt 提供设计 token、通用组件与 EchoMark 品牌标记；Glyphs.kt 用 Compose 画图标字形，不依赖位图。
-- Theme.kt：外观 Look = PAPER（日间）/ INK（夜间）/ WARM（暖黄）/ GREEN（淡绿）/ CUSTOM（日间自定义底色）；6 种强调色（沙金/雾蓝/黛青/陶土/灰紫/靛蓝）以六张真实欢迎页预览呈现，四档外观下实时重绘；夜间底色 #050608，日间 #F4F2ED；暖黄与淡绿只在日间、由 eyeMode 控制。强调色拆三角色：填充用 accent（日/夜各一值），日间小字用 accentText（命中预设时取 dayText，否则同时对照纸白 / 面板 / 面板高亮 / 16% 强调色叠底，在最坏底色上自动加深到 ≥4.7），填充上的字用 onAccent（在近黑与纸白中取对 accent 对比度更高者）；夜间 accent 主要承担填充，小字同样经 accentText 按最坏底色校验。自定义强调色在写入前先过 readableAccent：若 onAccent 对原色已达 4.7 则原样保留，否则按 ink / paper 哪侧更优，向黑或白逐 6% 迭代压深 / 提亮（上限 32 步），中灰也不会出现“黑字压不住、白字读不出”的两难；选中边框与勾选统一用 accentText，非文本对比度 ≥ 3.0。
+- Theme.kt：外观 Look = PAPER（日间）/ INK（夜间）/ WARM（暖黄）/ GREEN（淡绿）/ CUSTOM（自选：浅色·日间 / 深色·夜间两套各自保存）；6 种强调色（沙金/雾蓝/黛青/陶土/灰紫/靛蓝）以六张真实欢迎页预览呈现，四档外观下实时重绘；夜间底色 #050608，日间 #F4F2ED；暖黄与淡绿只在日间、由 eyeMode 控制。自选底色分浅色·日间与深色·夜间两套，各存色相 / 饱和度 / CIE L*（0–100 感知明度；Lightness.kt 固定 H/S 后二分反解 HSL lightness，滑杆读数与存储都是 L*）；每套由 CustomSurface 从底色派生 void / panel / panelHigh / hair / controlBorder / ivory / muted 等表面，isDark 取纸白与墨黑中对比更高的一侧，深色底面板提亮、浅色底面板压暗并各自把文本对比度校正到 ≥4.7；打开自选时保持当前日夜，点 tab 整屏切到对应一套，旧单色 pref 启动时迁入匹配的一套。系统栏图标按 isDarkBackground（自选表面或 !isDay）取亮 / 暗。强调色拆三角色：填充用 accent（日/夜各一值），日间小字用 accentText（命中预设时取 dayText，否则同时对照纸白 / 面板 / 面板高亮 / 16% 强调色叠底，在最坏底色上自动加深到 ≥4.7），填充上的字用 onAccent（在近黑与纸白中取对 accent 对比度更高者）；夜间 accent 主要承担填充，小字同样经 accentText 按最坏底色校验。自定义强调色在写入前先过 readableAccent：若 onAccent 对原色已达 4.7 则原样保留，否则按 ink / paper 哪侧更优，向黑或白逐 6% 迭代压深 / 提亮（上限 32 步），中灰也不会出现“黑字压不住、白字读不出”的两难；选中边框与勾选统一用 accentText，非文本对比度 ≥ 3.0。
 - Android launcher 图标在 app/src/main/res/mipmap-*/ic_launcher* 与 adaptive 资源里，当前是蓝白命令提示符（1.6:1 圆角瓦片，提交 ccdb156）；应用内 EchoMark 与 launcher mark 是两套绘制，需保持形状语言同源。
 - 文案语气：短句、克制、不带官方背书；欢迎页「欢迎回来，随时续上。」，关于页 slogan「把没说完的话，接回来。」，输入区页脚「内容由 AI 生成，请仔细甄别 · 数据只保存在本机」。
 
 ## 11. 测试与验证
 
-- JVM 单测 146 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段、代理对边界与 8K 单行扫描推进，36 例）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、加载门禁、脏标记代数、恢复对账、墓碑剔除、坏索引合并与墓碑回滚与持久化过滤 persistableIds，13 例）、TombstoneStoreTest（墓碑损坏返回 null 并保留原文件、round-trip、磁盘为底 merge、remove 保留其他、加载清理 merge，6 例）、ThemeContrastTest（六强调色日/夜小字与自定义极端色对比度均 ≥4.7、任意灰阶经 readableAccent 归一后填充字仍 ≥4.7、预设色不被改写、选中 pill 文字、HelpDialogs 勾选、预设预览卡边框按卡底取前景、选中标签与边框、预设自映射、旧 skinSchema 迁移幂等、16% 强调色叠底与选中态非文本 ≥3.0，14 例）。命令见 CONTRIBUTING.md。
+- JVM 单测 155 例：SseTest（协议解析与容错）、ProtocolTest（请求体与 SSE 循环回归）、BillingTest（计费与切分）、FormatTest（格式化）、ExportTest（导出渲染）、MarkdownTest（解析、流式切段、代理对边界与 8K 单行扫描推进，36 例）、TtsAudioTest（48k 半带重采样与尾等待）、FollowTailTest（贴底跟随判定、救援与发送回底目标，6 例）、SessionPersistenceTest（索引必写、加载门禁、脏标记代数、恢复对账、墓碑剔除、坏索引合并与墓碑回滚与持久化过滤 persistableIds，13 例）、TombstoneStoreTest（墓碑损坏返回 null 并保留原文件、round-trip、磁盘为底 merge、remove 保留其他、加载清理 merge，6 例）、ThemeContrastTest（六强调色日/夜小字与自定义极端色对比度均 ≥4.7、任意灰阶经 readableAccent 归一后填充字仍 ≥4.7、预设色不被改写、选中 pill 文字、HelpDialogs 勾选、预设预览卡边框按卡底取前景、选中标签与边框、预设自映射、旧 skinSchema 迁移幂等、16% 强调色叠底与选中态非文本 ≥3.0、浅/深两套自定义底下的表面明暗与文本对比度、L* 与 H/S 独立性，19 例）、LightnessTest（L* 换算与二分反解、色相/饱和度保持、极端值，4 例）。命令见 CONTRIBUTING.md。
 - 本地协议联调：scripts/mock_sse_server.py 提供 normal / truncated / error_sse / 429 / 500 五种模式，默认 18080 端口；debug 构建加 -PapiOrigin 指向它。
 - 构建验证：gradle :app:compileDebugKotlin（日常）；release 构建、签名与 Baseline Profile 见 README.md。
 - CI：.github/workflows/ci.yml（GitHub Actions）依次跑 Kotlin 编译、JVM 单测与 scripts/mock_sse_server.py --selftest，环境为 JDK 17 / Gradle 8.9 / Android SDK 35。

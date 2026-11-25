@@ -364,7 +364,10 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                             color = if (C.isDarkBackground) C.accentText(accent) else C.Muted,
                             fontSize = 14.sp,
                             modifier = Modifier.clickable {
-                                if (!C.isDarkBackground) state.applyAppearance(C.Look.INK)
+                                // 自选底色时「暗/亮」只切到对应那一套，不退出自选。
+                                if (C.isDarkBackground) return@clickable
+                                if (state.customAppearance) state.setCustomDay(false)
+                                else state.applyAppearance(C.Look.INK)
                             },
                         )
                         Text(
@@ -372,7 +375,9 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                             color = if (C.isDarkBackground) C.Muted else C.accentText(accent),
                             fontSize = 14.sp,
                             modifier = Modifier.clickable {
-                                if (C.isDarkBackground) state.applyAppearance(C.Look.PAPER)
+                                if (!C.isDarkBackground) return@clickable
+                                if (state.customAppearance) state.setCustomDay(true)
+                                else state.applyAppearance(C.Look.PAPER)
                             },
                         )
                     }

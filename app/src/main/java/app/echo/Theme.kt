@@ -44,18 +44,23 @@ object C {
 
     var eyeProgress by mutableFloatStateOf(0f)
 
-    /** 日间自定义底色开关；颜色存在 State，这里只保留渲染用的色相。 */
+    /** 自定义底色开关：日间/夜间各存一套，互不影响。 */
     var customThemeOn by mutableStateOf(false)
         private set
-    private var customTint: Color? = null
+    private var customLightTint: Color? = null
+    private var customDarkTint: Color? = null
 
-    /** 自选底色派生出的整套表面色；null 表示走预设外观的 ramp。 */
-    private var customSurface: CustomSurface? by mutableStateOf(null)
+    /** 两套自选底色各自派生的表面色；按当前日夜取用，null 表示走预设外观的 ramp。 */
+    private var customLightSurface: CustomSurface? by mutableStateOf(null)
+    private var customDarkSurface: CustomSurface? by mutableStateOf(null)
+    private val customSurface: CustomSurface?
+        get() = if (isDay) customLightSurface else customDarkSurface
 
     val look: Look
         get() = when {
-            !isDay -> Look.INK
+            // 自选底色两套各自接管日间/夜间，不能再被夜间与否挡掉。
             customThemeOn -> Look.CUSTOM
+            !isDay -> Look.INK
             eyeMode == 1 -> Look.WARM
             eyeMode == 2 -> Look.GREEN
             else -> Look.PAPER
@@ -77,24 +82,32 @@ object C {
 
     fun applyEye(mode: Int) { eyeMode = mode.coerceIn(0, 2) }
 
-    fun initCustomTheme(argb: Int, enabled: Boolean) {
-        applyCustomTheme(if (enabled) argb else null)
+    fun initCustomThemes(lightArgb: Int, darkArgb: Int, enabled: Boolean) {
+        applyCustomThemes(if (enabled) lightArgb else null, if (enabled) darkArgb else null)
     }
 
-    /** argb = null 关闭自定义底色，回到当前外观的预设底色。 */
-    fun applyCustomTheme(argb: Int?) {
-        customTint = argb?.let { Color(it) }
-        customThemeOn = argb != null
-        customSurface = customTint?.let { CustomSurface(it) }
-        voidRamp.applyCustom(customTint, 0.010f)
-        panelRamp.applyCustom(customTint, 0.010f)
-        panelHighRamp.applyCustom(customTint, 0.014f)
-        hairRamp.applyCustom(customTint, 0.008f)
-        promptRamp.applyCustom(customTint, 0.010f)
+    /** 两套自选底色一起装进渲染层；任意一套为 null 即视为关闭。 */
+    fun applyCustomThemes(lightArgb: Int?, darkArgb: Int?) {
+        customLightTint = lightArgb?.let { Color(it) }
+        customDarkTint = darkArgb?.let { Color(it) }
+        customLightSurface = customLightTint?.let { CustomSurface(it) }
+        customDarkSurface = customDarkTint?.let { CustomSurface(it) }
+        customThemeOn = lightArgb != null && darkArgb != null
     }
 
-    /** 当前自选底色的真实底色；关闭时回纸白。 */
+    /** 当前生效那一套的底色；关闭时回纸白。 */
     fun customField(): Color = customSurface?.void ?: Color(0xFFF4F2ED)
+
+    /** 指定那一套（日/夜）的底色，预览色块与自选瓦片用。 */
+    fun customFieldFor(day: Boolean): Color =
+        (if (day) customLightSurface else customDarkSurface)?.void ?: Color(0xFFF4F2ED)
+
+    /** 面板里拖旋钮时的草稿色：不写入全局，只拿来渲染实时预览。 */
+    internal fun previewSurface(hue: Float, sat: Float, lstar: Float): CustomSurface =
+        CustomSurface(Color(Lightness.argbFor(hue, sat, lstar)))
+
+    /** 实时预览里的正文对比度，用于「正文对比 12.2:1」徽标。 */
+    internal fun bodyContrast(surface: CustomSurface): Float = contrastOn(surface.ivory, surface.void)
 
     /** 选色时预览「这个 ARGB 当底色会长什么样」，不改全局状态。 */
     fun fieldPreview(argb: Int): Color = Color(argb)
@@ -296,18 +309,40 @@ object C {
 }
 
 /**
- * 自选底色派生出的整套表面色：明度决定界面是深色还是浅色，
+ * 一套自选底色派生出的整套表面色：明度决定界面是深色还是浅色，
  * 面板/分割线/正文/强调色都按实际底色的极性重新取值，而不是只做一层几不可见的染色。
+ * 日间/夜间各有一份，互不影响。
  */
-private class CustomSurface(val void: Color) {
+internal class CustomSurface(val void: Color) {
     val isDark: Boolean = contrastOf(PAPER_ON_ACCENT, void) >= contrastOf(INK_ON_ACCENT, void)
 
     private val toward = if (isDark) Color.White else Color.Black
 
+    // 中段深色底（L* 40-50）上，面板再提亮就会让白字跌破 4.7：
+    // 这里按「白字仍能到 TEXT_CONTRAST+余量」封顶，宁可少提亮也不牺牲可读性。
+    private fun darkStep(amount: Float): Color {
+        var color = mixOklab(void, Color.White, amount)
+        var guard = 0
+        while (contrastOf(Color.White, color) < TEXT_CONTRAST + 0.35f && guard++ < 40) {
+            color = mixOklab(color, void, 0.10f)
+        }
+        return color
+    }
+
+    // 浅色分支同理：中段底色上把面板再压暗，黑字同样到不了 4.7。
+    private fun lightStep(amount: Float): Color {
+        var color = mixOklab(void, Color.Black, amount)
+        var guard = 0
+        while (contrastOf(Color.Black, color) < TEXT_CONTRAST + 0.45f && guard++ < 40) {
+            color = mixOklab(color, Color.White, 0.10f)
+        }
+        return color
+    }
+
     val panel: Color =
-        if (isDark) mixOklab(void, Color.White, 0.10f) else mixOklab(void, Color.Black, 0.045f)
+        if (isDark) darkStep(0.10f) else lightStep(0.045f)
     val panelHigh: Color =
-        if (isDark) mixOklab(void, Color.White, 0.18f) else mixOklab(void, Color.Black, 0.08f)
+        if (isDark) darkStep(0.18f) else lightStep(0.08f)
     val hair: Color =
         if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f)
     val controlBorder: Color =
@@ -432,16 +467,6 @@ private fun oklabToColor(l: Float, a: Float, b: Float, alpha: Float): Color {
     )
 }
 
-/** 只换色相、保留 OkLab 明度：自选底色不会把对比度拖坏。 */
-private fun tinted(base: Color, tint: Color, chroma: Float): Color {
-    val b = base.toOklab()
-    val t = tint.toOklab()
-    val c = kotlin.math.sqrt(t[1] * t[1] + t[2] * t[2])
-    if (c < 0.001f) return base
-    val k = chroma / c
-    return oklabToColor(b[0], t[1] * k, t[2] * k, base.alpha)
-}
-
 private class Ramp(
     private val night: Color,
     private val day: Color,
@@ -494,16 +519,8 @@ private class LookRamp(
     private val paperRamp = Ramp(night, paper)
     private val warmRamp = Ramp(night, warmDay)
     private val greenRamp = Ramp(night, greenDay)
-    private var customRamp: Ramp? = null
-
-    fun applyCustom(tint: Color?, chroma: Float) {
-        customRamp = if (tint == null) null else Ramp(night, tinted(paper, tint, chroma))
-    }
-
-    fun customDay(): Color = customRamp?.at(1f) ?: paper
 
     fun at(t: Float): Color {
-        if (C.look == C.Look.CUSTOM) customRamp?.let { return it.at(t) }
         val base = paperRamp.at(t)
         val eye = C.eyeMode
         if (C.look == C.Look.INK || eye == 0 || C.eyeProgress <= .001f || t <= .001f) return base

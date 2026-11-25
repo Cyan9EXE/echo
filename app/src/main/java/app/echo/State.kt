@@ -10,6 +10,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.JsonReader
 import android.util.JsonToken
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.Snapshot
@@ -28,6 +29,9 @@ import androidx.compose.ui.graphics.toArgb
 
 /** 自定义强调色的归一写入规则版本；改动可读性算法时递增以触发一次显式迁移。 */
 private const val CUSTOM_ACCENT_SCHEMA = 1
+
+/** 一套自选底色的编辑值：H 0..360、S 0..100、L* 0..100。 */
+private data class CustomBase(val hue: Float, val sat: Float, val lstar: Float)
 
 class AppState(private val context: Context) {
     private val appContext = context.applicationContext
@@ -135,11 +139,80 @@ class AppState(private val context: Context) {
 
     var customAccent by mutableStateOf(initialCustomAccent())
         private set
-    /** 日间第五种外观：底色由用户自选，存成 ARGB（只换色度，明度仍跟随纸白）。 */
-    var customThemeArgb by mutableStateOf(prefs.getInt("customTheme", 0xFFF3E9D8.toInt()))
-        private set
+
+    /**
+     * 自定义底色两套：日间一套、夜间一套，各自保存 H / S / L*，互不影响。
+     * 旧版只有一份 "customTheme" ARGB，启动时迁移到日间套，夜间套按同色相派生。
+     */
+    private val bootBases = loadCustomBases()
     var customThemeOn by mutableStateOf(prefs.getBoolean("customThemeOn", false))
         private set
+    var customLightHue by mutableFloatStateOf(bootBases.first.hue)
+        private set
+    var customLightSat by mutableFloatStateOf(bootBases.first.sat)
+        private set
+    var customLightLstar by mutableFloatStateOf(bootBases.first.lstar)
+        private set
+    var customDarkHue by mutableFloatStateOf(bootBases.second.hue)
+        private set
+    var customDarkSat by mutableFloatStateOf(bootBases.second.sat)
+        private set
+    var customDarkLstar by mutableFloatStateOf(bootBases.second.lstar)
+        private set
+
+    /** 当前正在编辑那一套的值（跟随整屏日/夜）。 */
+    val customHue: Float get() = if (C.isDay) customLightHue else customDarkHue
+    val customSat: Float get() = if (C.isDay) customLightSat else customDarkSat
+    val customLstar: Float get() = if (C.isDay) customLightLstar else customDarkLstar
+
+    fun customValuesFor(day: Boolean): FloatArray =
+        if (day) floatArrayOf(customLightHue, customLightSat, customLightLstar)
+        else floatArrayOf(customDarkHue, customDarkSat, customDarkLstar)
+
+    private fun loadCustomBases(): Pair<CustomBase, CustomBase> {
+        val legacy = if (prefs.contains("customTheme")) prefs.getInt("customTheme", 0) else null
+        if (!prefs.contains("customHueDay")) {
+            if (legacy != null) {
+                val hsl = Lightness.hueSat(legacy)
+                val hue = hsl[0].coerceIn(0f, 360f)
+                val sat = hsl[1].coerceIn(0f, 100f)
+                val lstar = Lightness.lstarOf(legacy).coerceIn(2f, 98f)
+                // 旧版只有一条底色：明度高的是浅色底，明度低的本来就是深色底，
+                // 迁移到对应那一套，另一套由同色相派生，避免「浅色·日间」里装着深底。
+                return if (lstar >= 50f) {
+                    CustomBase(hue, sat, lstar) to CustomBase(
+                        hue,
+                        kotlin.math.min(sat, Lightness.DEFAULT_DARK_SAT),
+                        Lightness.DEFAULT_DARK_LSTAR,
+                    )
+                } else {
+                    CustomBase(hue, sat, Lightness.DEFAULT_LIGHT_LSTAR) to CustomBase(hue, sat, lstar)
+                }
+            }
+            return CustomBase(
+                Lightness.DEFAULT_LIGHT_HUE,
+                Lightness.DEFAULT_LIGHT_SAT,
+                Lightness.DEFAULT_LIGHT_LSTAR,
+            ) to CustomBase(
+                Lightness.DEFAULT_LIGHT_HUE,
+                Lightness.DEFAULT_DARK_SAT,
+                Lightness.DEFAULT_DARK_LSTAR,
+            )
+        }
+        fun read(key: String, fallback: Float): Float =
+            prefs.getFloat(key, fallback).coerceIn(0f, 100f)
+        val light = CustomBase(
+            prefs.getFloat("customHueDay", Lightness.DEFAULT_LIGHT_HUE).coerceIn(0f, 360f),
+            read("customSatDay", Lightness.DEFAULT_LIGHT_SAT),
+            read("customLstarDay", Lightness.DEFAULT_LIGHT_LSTAR),
+        )
+        val dark = CustomBase(
+            prefs.getFloat("customHueNight", Lightness.DEFAULT_LIGHT_HUE).coerceIn(0f, 360f),
+            read("customSatNight", Lightness.DEFAULT_DARK_SAT),
+            read("customLstarNight", Lightness.DEFAULT_DARK_LSTAR),
+        )
+        return light to dark
+    }
     // 0 = off, 1 = warm paper, 2 = soft green. Only rendered in day mode.
     var eyeMode by mutableStateOf(prefs.getInt("eyeMode", 0).coerceIn(0, 2))
         private set
@@ -232,7 +305,7 @@ class AppState(private val context: Context) {
         prefs.edit().remove("blueAccent").apply()
         C.initDay(prefs.getBoolean("dayMode", false))
         C.initEye(prefs.getInt("eyeMode", 0))
-        C.initCustomTheme(customThemeArgb, customThemeOn)
+        C.initCustomThemes(lightBaseArgb(), darkBaseArgb(), customThemeOn)
         if (prefs.contains("officialToken") || prefs.contains("officialName") || prefs.contains("officialPhone") || prefs.contains("officialDeviceId") || prefs.contains("mode")) {
             prefs.edit()
                 .remove("officialToken").remove("officialName").remove("officialPhone")
@@ -318,8 +391,87 @@ class AppState(private val context: Context) {
     /** 自定义强调色已启用：skinIndex 指向六个预设之后的第七格。 */
     val customMode: Boolean get() = skinIndex > C.skins.lastIndex
 
-    /** 自定义底色已启用且处于日间。 */
-    val customAppearance: Boolean get() = customThemeOn && C.isDay
+    /** 自定义底色已启用（日间/夜间各一套）。 */
+    val customAppearance: Boolean get() = customThemeOn
+
+    private fun lightBaseArgb(): Int =
+        Lightness.argbFor(customLightHue, customLightSat, customLightLstar)
+
+    private fun darkBaseArgb(): Int =
+        Lightness.argbFor(customDarkHue, customDarkSat, customDarkLstar)
+
+    private fun persistCustomBases() {
+        prefs.edit()
+            .putFloat("customHueDay", customLightHue)
+            .putFloat("customSatDay", customLightSat)
+            .putFloat("customLstarDay", customLightLstar)
+            .putFloat("customHueNight", customDarkHue)
+            .putFloat("customSatNight", customDarkSat)
+            .putFloat("customLstarNight", customDarkLstar)
+            .putBoolean("customThemeOn", true)
+            .apply()
+    }
+
+    /** 提交当前这一套的自定义底色：立即生效并持久化（旋钮松手/± 单步时调用）。 */
+    fun applyCustomBase(hue: Float, sat: Float, lstar: Float) =
+        applyCustomBaseFor(C.isDay, hue, sat, lstar)
+
+    /** 提交指定那一套（撤销、恢复默认、复制到另一套都走这里）。 */
+    fun applyCustomBaseFor(day: Boolean, hue: Float, sat: Float, lstar: Float) {
+        captureVoid()
+        val h = hue.coerceIn(0f, 360f)
+        val s = sat.coerceIn(0f, 100f)
+        val l = lstar.coerceIn(0f, 100f)
+        if (day) {
+            customLightHue = h
+            customLightSat = s
+            customLightLstar = l
+        } else {
+            customDarkHue = h
+            customDarkSat = s
+            customDarkLstar = l
+        }
+        customThemeOn = true
+        C.applyCustomThemes(lightBaseArgb(), darkBaseArgb())
+        persistCustomBases()
+    }
+
+    /**
+     * 切换自定义底色的编辑套：浅色·日间 = 整屏回日间，深色·夜间 = 整屏回夜间。
+     * 两套互不影响，切 tab 只是换一套显示与编辑。
+     */
+    fun setCustomDay(day: Boolean) {
+        captureVoid()
+        if (C.isDay != day) C.applyDay(day)
+        if (eyeMode != 0) {
+            eyeMode = 0
+            C.applyEye(0)
+        }
+        customThemeOn = true
+        C.applyCustomThemes(lightBaseArgb(), darkBaseArgb())
+        prefs.edit()
+            .putBoolean("dayMode", day)
+            .putInt("eyeMode", 0)
+            .putBoolean("customThemeOn", true)
+            .apply()
+    }
+
+    /** 把当前这套的 H/S/L* 复制到另一套，两套之后仍各自独立。 */
+    fun copyCustomToOther() {
+        captureVoid()
+        if (C.isDay) {
+            customDarkHue = customLightHue
+            customDarkSat = customLightSat
+            customDarkLstar = customLightLstar
+        } else {
+            customLightHue = customDarkHue
+            customLightSat = customDarkSat
+            customLightLstar = customDarkLstar
+        }
+        customThemeOn = true
+        C.applyCustomThemes(lightBaseArgb(), darkBaseArgb())
+        persistCustomBases()
+    }
 
     fun updateSkin(index: Int) {
         skinIndex = index.coerceIn(0, C.skins.size)
@@ -332,10 +484,11 @@ class AppState(private val context: Context) {
     /** 只切外观，强调色保持不变。 */
     fun applyAppearance(look: C.Look) {
         captureVoid()
-        if (look == C.Look.INK) {
-            if (C.isDay) C.applyDay(false)
-        } else if (!C.isDay) {
-            C.applyDay(true)
+        when (look) {
+            // 自选两套各自接管日间/夜间，进入时保持当前日夜，不强制回日间。
+            C.Look.CUSTOM -> Unit
+            C.Look.INK -> if (C.isDay) C.applyDay(false)
+            else -> if (!C.isDay) C.applyDay(true)
         }
         val eye = when (look) {
             C.Look.WARM -> 1
@@ -346,10 +499,12 @@ class AppState(private val context: Context) {
             eyeMode = eye
             C.applyEye(eye)
         }
-        val custom = look == C.Look.CUSTOM
-        if (customThemeOn != custom) {
-            customThemeOn = custom
-            C.applyCustomTheme(if (custom) customThemeArgb else null)
+        if (look == C.Look.CUSTOM) {
+            customThemeOn = true
+            C.applyCustomThemes(lightBaseArgb(), darkBaseArgb())
+        } else if (customThemeOn) {
+            customThemeOn = false
+            C.applyCustomThemes(null, null)
         }
         prefs.edit()
             .putBoolean("dayMode", C.isDay)
@@ -361,30 +516,11 @@ class AppState(private val context: Context) {
     /** 只切强调色，外观保持不变。 */
     fun applyAccent(index: Int) = updateSkin(index)
 
-    /** 日间自定义底色：传入 HSL 选出的 ARGB，立即生效并持久化。 */
-    fun applyCustomTheme(argb: Int) {
-        captureVoid()
-        customThemeArgb = argb
-        customThemeOn = true
-        if (!C.isDay) C.applyDay(true)
-        if (eyeMode != 0) {
-            eyeMode = 0
-            C.applyEye(0)
-        }
-        C.applyCustomTheme(argb)
-        prefs.edit()
-            .putInt("customTheme", argb)
-            .putBoolean("customThemeOn", true)
-            .putBoolean("dayMode", true)
-            .putInt("eyeMode", 0)
-            .apply()
-    }
-
     /** 关掉自定义底色，回到预设外观。 */
     fun disableCustomTheme() {
         captureVoid()
         customThemeOn = false
-        C.applyCustomTheme(null)
+        C.applyCustomThemes(null, null)
         prefs.edit().putBoolean("customThemeOn", false).apply()
     }
 
