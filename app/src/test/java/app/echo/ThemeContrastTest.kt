@@ -257,6 +257,54 @@ class ThemeContrastTest {
     }
 
     @Test
+    fun customDarkBackgroundBuildsDarkSurfacesAndReadableText() {
+        C.initDay(true)
+        listOf(0xFF101820.toInt(), 0xFF1B2430.toInt(), 0xFF0E1220.toInt(), 0xFF2A1F3D.toInt()).forEach { argb ->
+            C.applyCustomTheme(argb)
+            val tag = "custom dark 0x" + argb.toString(16)
+            assertTrue(tag + " 应判为深色界面", C.isDarkBackground)
+            assertEquals(tag + " 底色应为所选颜色", Color(argb), C.customField())
+            assertTrue(tag + " 面板应比底色亮", C.Panel.luminance() > C.Void.luminance())
+            assertTrue(tag + " 高亮面板应比面板亮", C.PanelHigh.luminance() > C.Panel.luminance())
+            assertContrast(tag + " 正文", C.Ivory, listOf(C.Void, C.Panel, C.PanelHigh), 4.5f)
+            assertContrast(tag + " 次级字", C.Muted, listOf(C.Void, C.Panel, C.PanelHigh), 3.2f)
+            C.skins.forEachIndexed { index, skin ->
+                assertEquals(tag + " preset 应取夜间色", skin.night, C.presetAccent(index))
+                assertContrast(tag + " accent text", C.accentText(skin.night), C.textBackgrounds(skin.night), 4.7f)
+            }
+        }
+    }
+
+    @Test
+    fun customLightBackgroundKeepsPaperLikeSurfaces() {
+        C.initDay(true)
+        listOf(0xFFF4F2ED.toInt(), 0xFFF2E8D5.toInt(), 0xFFEAF1F7.toInt(), 0xFFFFF9E8.toInt()).forEach { argb ->
+            C.applyCustomTheme(argb)
+            val tag = "custom light 0x" + argb.toString(16)
+            assertTrue(tag + " 应判为浅色界面", !C.isDarkBackground)
+            assertEquals(tag + " 底色应为所选颜色", Color(argb), C.customField())
+            assertTrue(tag + " 浅色面板应比底色暗", C.Panel.luminance() < C.Void.luminance())
+            assertContrast(tag + " 正文", C.Ivory, listOf(C.Void, C.Panel, C.PanelHigh), 4.5f)
+            assertContrast(tag + " 次级字", C.Muted, listOf(C.Void, C.Panel, C.PanelHigh), 3.2f)
+            C.skins.forEachIndexed { index, skin ->
+                assertEquals(tag + " preset 应取日间色", skin.day, C.presetAccent(index))
+                assertContrast(tag + " accent text", C.accentText(skin.night), C.textBackgrounds(skin.night), 4.7f)
+            }
+        }
+    }
+
+    @Test
+    fun resettingCustomThemeRestoresPresetSurfaces() {
+        C.initDay(true)
+        val before = listOf(C.Void, C.Panel, C.PanelHigh, C.Hair, C.Ivory, C.Muted)
+        C.applyCustomTheme(0xFF101820.toInt())
+        C.applyCustomTheme(null)
+        assertEquals(before, listOf(C.Void, C.Panel, C.PanelHigh, C.Hair, C.Ivory, C.Muted))
+        assertEquals(Color(0xFFF4F2ED), C.customField())
+        assertTrue("清除后明暗应重新跟随日夜", C.isDarkBackground == !C.isDay)
+    }
+
+    @Test
     fun skinSchemaMigrationIsIdempotent() {
         assertEquals(6 to 1, migrateSkinIndex(0, 5, 6))
         assertEquals(3 to 1, migrateSkinIndex(0, 3, 6))

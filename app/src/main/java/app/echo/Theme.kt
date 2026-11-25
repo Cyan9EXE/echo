@@ -49,6 +49,9 @@ object C {
         private set
     private var customTint: Color? = null
 
+    /** 自选底色派生出的整套表面色；null 表示走预设外观的 ramp。 */
+    private var customSurface: CustomSurface? by mutableStateOf(null)
+
     val look: Look
         get() = when {
             !isDay -> Look.INK
@@ -82,6 +85,7 @@ object C {
     fun applyCustomTheme(argb: Int?) {
         customTint = argb?.let { Color(it) }
         customThemeOn = argb != null
+        customSurface = customTint?.let { CustomSurface(it) }
         voidRamp.applyCustom(customTint, 0.010f)
         panelRamp.applyCustom(customTint, 0.010f)
         panelHighRamp.applyCustom(customTint, 0.014f)
@@ -89,11 +93,14 @@ object C {
         promptRamp.applyCustom(customTint, 0.010f)
     }
 
-    /** 面板里展示自选底色的柔和预览。 */
-    fun customField(): Color = customTint?.let { tinted(Color(0xFFF4F2ED), it, 0.010f) } ?: Color(0xFFF4F2ED)
+    /** 当前自选底色的真实底色；关闭时回纸白。 */
+    fun customField(): Color = customSurface?.void ?: Color(0xFFF4F2ED)
 
     /** 选色时预览「这个 ARGB 当底色会长什么样」，不改全局状态。 */
-    fun fieldPreview(argb: Int): Color = tinted(Color(0xFFF4F2ED), Color(argb), 0.010f)
+    fun fieldPreview(argb: Int): Color = Color(argb)
+
+    /** 当前界面按实际底色判断明暗；预设外观跟随日夜。 */
+    val isDarkBackground: Boolean get() = customSurface?.isDark ?: !isDay
 
     fun previewVoid(look: Look): Color = when (look) {
         Look.INK -> Color(0xFF050608)
@@ -152,10 +159,17 @@ object C {
      */
     fun accentText(accent: Color): Color {
         val backgrounds = textBackgrounds(accent)
-        val preset = if (isDay) nearestSkin(accent) else -1
-        var c = if (preset >= 0) skins[preset].dayText else accent
+        val custom = customSurface
+        val darkUi = custom?.isDark ?: !isDay
+        val preset = nearestSkin(accent)
+        var c = when {
+            custom != null && preset >= 0 -> if (darkUi) skins[preset].night else skins[preset].dayText
+            custom != null -> accent
+            isDay && preset >= 0 -> skins[preset].dayText
+            else -> accent
+        }
         var guard = 0
-        val toward = if (isDay) Color.Black else Color.White
+        val toward = if (darkUi) Color.White else Color.Black
         while (minContrastOn(c, backgrounds) < TEXT_CONTRAST && guard++ < 32) {
             c = mixOklab(c, toward, 0.06f)
         }
@@ -245,6 +259,7 @@ object C {
     /** 预设强调色在当前的日夜/护眼进度下的实际颜色（自定义色不在此列）。 */
     fun presetAccent(index: Int): Color {
         if (index !in skins.indices) return Color.Transparent
+        if (customSurface?.isDark == true) return skins[index].night
         return accentOf(index)
     }
 
@@ -253,8 +268,7 @@ object C {
         val customMode = skinIndex > skins.lastIndex
         val eye = isDay && eyeMode != 0
         val top = when {
-            customMode && eye -> eyeDim()
-            customMode -> Color(0xFF6E6E6E)
+            customMode -> customField()
             eye -> eyeLit()
             else -> if (isDay) Color(0xFFFFFFFF) else Color(0xFFEDEAE3)
         }
@@ -262,23 +276,84 @@ object C {
         return ThemeMark(top, bottom)
     }
 
-    val Void get() = voidRamp.at(themeProgress)
-    val Panel get() = panelRamp.at(themeProgress)
-    val PanelHigh get() = panelHighRamp.at(themeProgress)
-    val Hair get() = hairRamp.at(themeProgress)
+    val Void get() = customSurface?.void ?: voidRamp.at(themeProgress)
+    val Panel get() = customSurface?.panel ?: panelRamp.at(themeProgress)
+    val PanelHigh get() = customSurface?.panelHigh ?: panelHighRamp.at(themeProgress)
+    val Hair get() = customSurface?.hair ?: hairRamp.at(themeProgress)
 
-    val ControlBorder get() = controlRamp.at(themeProgress)
+    val ControlBorder get() = customSurface?.controlBorder ?: controlRamp.at(themeProgress)
 
-    val Ivory get() = ivoryRamp.at(inkFlip(Void.luminance()))
-    val Muted get() = mutedRamp.at(inkFlip(Void.luminance()))
+    val Ivory get() = customSurface?.ivory ?: ivoryRamp.at(inkFlip(Void.luminance()))
+    val Muted get() = customSurface?.muted ?: mutedRamp.at(inkFlip(Void.luminance()))
 
-    val Blue get() = blueRamp.at(themeProgress)
+    val Blue get() = customSurface?.blue ?: blueRamp.at(themeProgress)
 
-    val Danger get() = dangerRamp.at(themeProgress)
-    val PromptBg get() = promptRamp.at(themeProgress)
+    val Danger get() = customSurface?.danger ?: dangerRamp.at(themeProgress)
+    val PromptBg get() = customSurface?.promptBg ?: promptRamp.at(themeProgress)
 
-    val Scrim get() = scrimRamp.at(themeProgress)
+    val Scrim get() = customSurface?.scrim ?: scrimRamp.at(themeProgress)
 
+}
+
+/**
+ * 自选底色派生出的整套表面色：明度决定界面是深色还是浅色，
+ * 面板/分割线/正文/强调色都按实际底色的极性重新取值，而不是只做一层几不可见的染色。
+ */
+private class CustomSurface(val void: Color) {
+    val isDark: Boolean = contrastOf(PAPER_ON_ACCENT, void) >= contrastOf(INK_ON_ACCENT, void)
+
+    private val toward = if (isDark) Color.White else Color.Black
+
+    val panel: Color =
+        if (isDark) mixOklab(void, Color.White, 0.10f) else mixOklab(void, Color.Black, 0.045f)
+    val panelHigh: Color =
+        if (isDark) mixOklab(void, Color.White, 0.18f) else mixOklab(void, Color.Black, 0.08f)
+    val hair: Color =
+        if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f)
+    val controlBorder: Color =
+        if (isDark) mixOklab(void, Color.White, 0.42f) else mixOklab(void, Color.Black, 0.34f)
+
+    val ivory: Color = readableOn(
+        start = if (isDark) mixOklab(Color.White, void, 0.06f) else mixOklab(Color(0xFF1A1713), void, 0.08f),
+        backgrounds = listOf(void, panel, panelHigh),
+        toward = toward,
+        target = TEXT_CONTRAST,
+    )
+    val muted: Color = readableOn(
+        start = mixOklab(ivory, void, 0.34f),
+        backgrounds = listOf(void, panel, panelHigh),
+        toward = toward,
+        target = 3.2f,
+    )
+
+    val blue: Color = if (isDark) Color(0xFF7FA8FF) else Color(0xFF2F55B8)
+    val danger: Color = if (isDark) Color(0xFFFF6B6B) else Color(0xFFB3261E)
+    val promptBg: Color =
+        if (isDark) mixOklab(void, Color.White, 0.13f) else mixOklab(void, Color.Black, 0.03f)
+    val scrim: Color = if (isDark) Color(0xB3000000) else Color(0x66000000)
+}
+
+private fun contrastOf(a: Color, b: Color): Float {
+    val la = a.luminance()
+    val lb = b.luminance()
+    val hi = kotlin.math.max(la, lb)
+    val lo = kotlin.math.min(la, lb)
+    return (hi + 0.05f) / (lo + 0.05f)
+}
+
+/** 把 start 朝 toward 逐步推，直到在全部 backgrounds 上都达到 target。 */
+private fun readableOn(
+    start: Color,
+    backgrounds: List<Color>,
+    toward: Color,
+    target: Float,
+): Color {
+    var c = start
+    var guard = 0
+    while (guard++ < 32 && backgrounds.minOf { contrastOf(c, it) } < target) {
+        c = mixOklab(c, toward, 0.06f)
+    }
+    return c
 }
 
 /**

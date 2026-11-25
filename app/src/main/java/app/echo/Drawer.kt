@@ -311,12 +311,17 @@ private fun computeDrawerView(
     val activePool = state.sessions.filter { !it.expired || it.revived }
     val pool = if (expiredOnly) dormant + warm else activePool
     val filtered = searchSessions(pool, query, associative)
+    // Pinned sessions stay on top in every ordering (matching contentRows below);
+    // the selected sort then applies inside each pinned/unpinned group (R19.5-P3-1).
     val reviveCmp: Comparator<Session> = when (reviveSort) {
-        1 -> compareByDescending<Session> { it.messages.roleSeq.length }.thenByDescending { it.updatedAt }
+        1 -> compareByDescending<Session> { it.messages.roleSeq.length }
+            .thenByDescending { it.pinned }
+            .thenByDescending { it.updatedAt }
         2 -> compareByDescending<Session> { it.charCount }
             .thenByDescending { it.messages.roleSeq.length }
+            .thenByDescending { it.pinned }
             .thenByDescending { it.updatedAt }
-        else -> compareByDescending { it.updatedAt }
+        else -> compareByDescending<Session> { it.pinned }.thenByDescending { it.updatedAt }
     }
     val contentRows = if (query.isBlank()) emptyList() else contentHits.entries.mapNotNull { entry ->
         pool.firstOrNull { it.id == entry.key }?.let { it to entry.value }
@@ -448,7 +453,10 @@ internal fun DrawerPanel(
             // input really changes, and unlike the old revision-keyed remember it also
             // follows the SnapshotStateList itself: delete/import mutate the list without
             // bumping revision, which made the row × look like it did nothing.
-            val view by remember {
+            // reviveSort/contentSortByRatio are plain parameters, not snapshot state read
+            // inside the lambda, so they must key the remember or switching the sort tab
+            // kept the old comparator forever (R19.5-P1-1).
+            val view by remember(reviveSort, contentSortByRatio) {
                 derivedStateOf {
                     state.revision // pin/revive/rename bump revision without touching the list
                     computeDrawerView(

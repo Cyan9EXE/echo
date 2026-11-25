@@ -43,6 +43,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -190,8 +191,8 @@ fun EchoApp(state: AppState) {
                     }
                 }
             }
-            var contentSortByRatio by remember { mutableStateOf(true) }
-            var reviveSort by remember { mutableStateOf(0) }
+            var contentSortByRatio by rememberSaveable { mutableStateOf(true) }
+            var reviveSort by rememberSaveable { mutableStateOf(0) }
             AnimatedVisibility(
                 visible = state.showDrawer,
                 enter = fadeIn(tween(Motion.dur(200, motionOn))),

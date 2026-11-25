@@ -359,8 +359,22 @@ internal fun SettingsSheet(state: AppState, accent: Color, onImport: () -> Unit)
                     Text("外观", color = C.Ivory, fontSize = 14.sp)
                     Spacer(Modifier.weight(1f))
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text("暗", color = if (!C.isDay) C.accentText(accent) else C.Muted, fontSize = 14.sp, modifier = Modifier.clickable { if (C.isDay) state.toggleDay() })
-                        Text("亮", color = if (C.isDay) C.accentText(accent) else C.Muted, fontSize = 14.sp, modifier = Modifier.clickable { if (!C.isDay) state.toggleDay() })
+                        Text(
+                            "暗",
+                            color = if (C.isDarkBackground) C.accentText(accent) else C.Muted,
+                            fontSize = 14.sp,
+                            modifier = Modifier.clickable {
+                                if (!C.isDarkBackground) state.applyAppearance(C.Look.INK)
+                            },
+                        )
+                        Text(
+                            "亮",
+                            color = if (C.isDarkBackground) C.Muted else C.accentText(accent),
+                            fontSize = 14.sp,
+                            modifier = Modifier.clickable {
+                                if (C.isDarkBackground) state.applyAppearance(C.Look.PAPER)
+                            },
+                        )
                     }
                 }
                 Spacer(Modifier.height(16.dp))

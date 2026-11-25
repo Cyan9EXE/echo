@@ -84,7 +84,7 @@ internal fun ThemeSheet(state: AppState, accent: Color) {
                     }
                 }
                 Text(
-                    "改完立即生效；日间为纸白，夜间为墨黑。",
+                    "改完立即生效；日间为纸白，夜间为墨黑；自选底色按明度自动切成深色或浅色界面。",
                     color = C.Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp),
                 )
 
@@ -121,9 +121,13 @@ internal fun ThemeSheet(state: AppState, accent: Color) {
                     HslEditor(
                         seed = state.customThemeArgb,
                         title = "自定义底色",
-                        hint = "松开滑杆后生效；色块与「自选」瓦片同步预览。",
+                        hint = "松开滑杆后生效；明度决定整套界面明暗，色相与饱和度只决定底色倾向。",
                         previewColor = { C.fieldPreview(it) },
                         onCommit = { state.applyCustomTheme(it) },
+                    )
+                    Text(
+                        "明度低于中段会切成深色界面：面板更暗、正文转亮、强调色自动提亮；高于中段则是浅色界面。",
+                        color = C.Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp),
                     )
                 }
 
