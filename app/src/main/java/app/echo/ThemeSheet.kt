@@ -44,9 +44,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -792,7 +792,7 @@ private fun AccentStrip(state: AppState, palette: CustomSurface, accent: Color) 
     }
 }
 
-private const val BAND_SAMPLES = 36
+private const val BAND_SAMPLES = 181
 
 /**
  * 色带样本：t∈(0,1) 处的颜色 = 「另外两个旋钮不动，只把当前这只转到这里」得到的底色。
@@ -894,71 +894,132 @@ private fun Dial(
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            // 内圈色带＝这只旋钮的底色：每段颜色都是「另外两钮不动、只转到这里」的结果色。
-            val bandOuter = 32.dp.toPx()
-            val bandWidth = 9.dp.toPx()
-            val bandRadius = bandOuter - bandWidth / 2f
-            val topLeft = Offset(center.x - bandRadius, center.y - bandRadius)
-            val arcSize = Size(bandRadius * 2f, bandRadius * 2f)
-            val n = band.size
-            fun paint(from: Float, to: Float, alpha: Float, width: Float = bandWidth) {
-                for (i in 0 until n) {
-                    val segStart = i.toFloat() / n
-                    val segEnd = (i + 1f) / n
-                    if (segEnd <= from || segStart >= to) continue
-                    val a1 = 135f + 270f * maxOf(segStart, from)
-                    val a2 = 135f + 270f * minOf(segEnd, to) + 1.2f
-                    drawArc(
-                        color = band[i].copy(alpha = band[i].alpha * alpha),
-                        startAngle = a1,
-                        sweepAngle = a2 - a1,
-                        useCenter = false,
-                        topLeft = topLeft,
-                        size = arcSize,
-                        style = Stroke(width = width, cap = StrokeCap.Butt),
-                    )
-                }
+            // M2 × M1 融合：一枚玻璃盘里嵌一根霓虹丝。
+            // 色带仍是一条 270°、181 采样、连续渐变的结果色；当前值只由玻璃珠表达。
+            val glassR = 41.dp.toPx()
+            val bandRadius = 30.dp.toPx()
+            val bandWidth = 2.6.dp.toPx()
+            val wellR = 33.5.dp.toPx()
+            val hubR = 23.dp.toPx()
+            val dark = C.isDarkBackground
+            val selected = band[
+                (f.coerceIn(0f, 0.9999f) * band.size).toInt().coerceIn(0, band.size - 1)
+            ]
+            val stops = Array(band.size) { i ->
+                (i.toFloat() / (band.size - 1).toFloat()) * 0.75f to band[i]
             }
-            // 凹槽打底：淡彩段落在同色面板上也能看出这是一条带。
-            drawArc(
-                color = C.ControlBorder.copy(alpha = 0.18f),
-                startAngle = 135f,
-                sweepAngle = 270f,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = bandWidth + 4.dp.toPx(), cap = StrokeCap.Butt),
+            val sweep = Brush.sweepGradient(colorStops = stops, center = center)
+            val arcTopLeft = Offset(center.x - bandRadius, center.y - bandRadius)
+            val arcSize = Size(bandRadius * 2f, bandRadius * 2f)
+
+            // 1. 环境阴影 + 当前色环境光：让旋钮从面板上浮起来。
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.Black.copy(alpha = if (dark) 0.34f else 0.20f), Color.Transparent),
+                    center = center + Offset(0f, 2.5.dp.toPx()),
+                    radius = glassR,
+                ),
+                radius = glassR,
+                center = center + Offset(0f, 2.5.dp.toPx()),
             )
-            // 未选段压暗、选中段加粗提亮：0→当前值这一段随拖动即时变化。
-            paint(0f, 1f, 0.55f)
-            paint(0f, f.coerceIn(0f, 1f), 1f, bandWidth + 3.dp.toPx())
-            // 带内外各一道 1dp 细沿，把带从凹槽里衬出来。
-            fun ring(radius: Float) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(selected.copy(alpha = if (dark) 0.16f else 0.13f), Color.Transparent),
+                    center = center,
+                    radius = glassR + 1.dp.toPx(),
+                ),
+                radius = glassR + 1.dp.toPx(),
+                center = center,
+            )
+            // 2. 玻璃盘：整面极淡的白色径向渐变（深色更透、浅色更乳白）。
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = if (dark) 0.10f else 0.52f),
+                        Color.White.copy(alpha = if (dark) 0.03f else 0.16f),
+                        Color.White.copy(alpha = 0f),
+                    ),
+                    center = center + Offset(-glassR * 0.30f, -glassR * 0.34f),
+                    radius = glassR * 1.5f,
+                ),
+                radius = glassR,
+                center = center,
+            )
+            // 3. 内凹浅槽：色带嵌进去，而不是浮在表面。
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = if (dark) 0.20f else 0.06f)),
+                    center = center,
+                    radius = wellR,
+                ),
+                radius = wellR,
+                center = center,
+            )
+            // 4. 霓虹丝：外层光晕 + 内核，一条 270° 连续渐变的发光线。
+            rotate(135f, center) {
                 drawArc(
-                    color = C.Hair.copy(alpha = 0.45f),
-                    startAngle = 135f,
-                    sweepAngle = 270f,
-                    useCenter = false,
-                    topLeft = Offset(center.x - radius, center.y - radius),
-                    size = Size(radius * 2f, radius * 2f),
-                    style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Butt),
+                    brush = sweep, startAngle = 0f, sweepAngle = 270f, useCenter = false,
+                    topLeft = arcTopLeft, size = arcSize, alpha = 0.10f,
+                    style = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Butt),
+                )
+                drawArc(
+                    brush = sweep, startAngle = 0f, sweepAngle = 270f, useCenter = false,
+                    topLeft = arcTopLeft, size = arcSize, alpha = 0.24f,
+                    style = Stroke(width = 7.dp.toPx(), cap = StrokeCap.Butt),
+                )
+                drawArc(
+                    brush = sweep, startAngle = 0f, sweepAngle = 270f, useCenter = false,
+                    topLeft = arcTopLeft, size = arcSize,
+                    style = Stroke(width = bandWidth, cap = StrokeCap.Butt),
                 )
             }
-            ring(bandRadius + bandWidth / 2f)
-            ring(bandRadius - bandWidth / 2f)
+            // 5. 玻璃边与镜面高光：只落在带外，不叠色到色带上。
+            fun glassArc(radius: Float, width: Float, color: Color, start: Float, sweepAngle: Float) {
+                drawArc(
+                    color = color, startAngle = start, sweepAngle = sweepAngle, useCenter = false,
+                    topLeft = Offset(center.x - radius, center.y - radius),
+                    size = Size(radius * 2f, radius * 2f),
+                    style = Stroke(width = width, cap = StrokeCap.Butt),
+                )
+            }
+            glassArc(glassR - 1.dp.toPx(), 1.dp.toPx(), Color.White.copy(alpha = if (dark) 0.16f else 0.55f), 135f, 270f)
+            glassArc(wellR - 1.5.dp.toPx(), 0.8.dp.toPx(), Color.White.copy(alpha = if (dark) 0.09f else 0.42f), 135f, 270f)
+            glassArc(glassR - 2.5.dp.toPx(), 1.8.dp.toPx(), Color.White.copy(alpha = if (dark) 0.20f else 0.60f), 196f, 52f)
+            // 6. 中心玻璃 hub：读数的底座。
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(C.PanelHigh, C.Panel),
+                    center = center + Offset(-hubR * 0.30f, -hubR * 0.34f),
+                    radius = hubR * 1.7f,
+                ),
+                radius = hubR,
+                center = center,
+            )
+            drawCircle(color = C.Hair.copy(alpha = 0.55f), radius = hubR, center = center, style = Stroke(1.dp.toPx()))
+            // 7. 指示光珠：玻璃珠 + 霓虹芯，骑在色带上。
             val rad = Math.toRadians((135f + 270f * f).toDouble())
             val dir = Offset(cos(rad).toFloat(), sin(rad).toFloat())
-            val perp = Offset(-dir.y, dir.x)
-            val tip = center + dir * (bandOuter + 1.5.dp.toPx())
-            val base = center + dir * (bandOuter + 9.dp.toPx())
-            val half = 4.4.dp.toPx()
-            val triangle = Path().apply {
-                moveTo(tip.x, tip.y)
-                lineTo(base.x + perp.x * half, base.y + perp.y * half)
-                lineTo(base.x - perp.x * half, base.y - perp.y * half)
-                close()
-            }
-            drawPath(triangle, C.Ivory)
+            val bead = center + dir * bandRadius
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(selected.copy(alpha = 0.50f), selected.copy(alpha = 0.10f), Color.Transparent),
+                    center = bead,
+                    radius = 11.dp.toPx(),
+                ),
+                radius = 11.dp.toPx(),
+                center = bead,
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.95f), selected, selected.copy(alpha = 0.55f)),
+                    center = bead + Offset(-1.3.dp.toPx(), -1.5.dp.toPx()),
+                    radius = 5.dp.toPx(),
+                ),
+                radius = 4.4.dp.toPx(),
+                center = bead,
+            )
+            drawCircle(color = Color.White.copy(alpha = 0.55f), radius = 4.4.dp.toPx(), center = bead, style = Stroke(0.8.dp.toPx()))
+            drawCircle(color = Color.White.copy(alpha = 0.85f), radius = 1.1.dp.toPx(), center = bead + Offset(-1.2.dp.toPx(), -1.4.dp.toPx()))
         }
         Text(
             valueText,

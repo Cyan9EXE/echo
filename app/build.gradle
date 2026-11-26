@@ -38,6 +38,12 @@ android {
                 storePassword project.findProperty('echo.release.storePassword')
                 keyAlias project.findProperty('echo.release.keyAlias') ?: 'echo'
                 keyPassword project.findProperty('echo.release.keyPassword')
+                // Ship APK Signature Scheme v2 + v3 (v1/JAR is unnecessary at minSdk 26;
+                // v4 .idsig is for adb incremental install only, not distribution).
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = false
             }
         }
     }

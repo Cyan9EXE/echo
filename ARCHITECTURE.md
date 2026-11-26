@@ -38,14 +38,14 @@ Export.kt（580） | 导出引擎与面板 | 单会话 Markdown / 全会话 ZIP�
 Design.kt（440） | 设计系统 | 尺寸/颜色/组件、EchoMark（Design.kt:115）
 Theme.kt（577） | 主题 | 外观、强调色、Oklab 色阶与过渡
 Lightness.kt（99） | 感知明度 | CIE L* 0–100 ↔ HSL 二分反解；HSL 转换自实现，JVM 可单测
-ThemeSheet.kt（1033） | 主题面板 | 预设、浅/深两套自定义底色（L* 旋钮、实时色带与外向内三角）、HSL 强调色
+ThemeSheet.kt（1090） | 主题面板 | 预设、浅/深两套自定义底色（L* 旋钮、玻璃盘与霓虹色带、光珠指示）、HSL 强调色
 Glyphs.kt（300） | 图标字形 | 纯 Compose 绘制，不依赖图片资源
 Markdown.kt（1640） | Markdown / LaTeX 渲染 | 自研子集解析 + Compose 渲染、代码块与公式布局（流式稳定段增量解析、未闭合尾行按纯文本）
 Format.kt（43） | 小工具 | 时间/金额格式化、Modifier.rise
 Motion.kt（24） | 动效参数 | 时长与缓动常量
 Browsers.kt（88） | 外链 | 优先已知浏览器，避免裸 WebView 壳
 
-合计 30 个 Kotlin 文件、13376 行（随提交变化）。
+合计 30 个 Kotlin 文件、13432 行（随提交变化）。
 
 ## 3. 状态与持久化
 
